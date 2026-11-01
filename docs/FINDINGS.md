@@ -10,6 +10,7 @@ behind each. "Confirmed" means checked against an independent source;
 |-----|------------|-------------|--------------------------|
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation (F1-F9, open questions). |
 | 0.2 | 2026-11-01 | Tony/Claude | F8: installed printer storage; F10: printing works; open question 3 answered. |
+| 0.3 | 2026-11-01 | Tony/Claude | F11: autostart via Deskbar restore. |
 
 ---
 
@@ -124,6 +125,12 @@ Printer added in Printers preferences as "Brother", driver "PCL6
 Compatible", transport IPP, URL `http://192.168.5.70:631/ipp/print`.
 A text page from StyledEdit printed correctly. Not yet tested: color,
 duplex, images.
+
+## F11. Autostart works through the Deskbar (confirmed)
+
+After a full restart, with nothing started by hand, the tray icon was
+restored by the Deskbar and the replicant relaunched the background app
+(Refresh worked). Tested with the app running from `build/`.
 
 ## F9. USB (not yet tested)
 

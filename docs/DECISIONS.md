@@ -10,6 +10,7 @@ reasoning survives after the conversation that produced it.
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation (D1-D14). |
 | 0.2 | 2026-11-01 | Tony/Claude | Added D15-D19.           |
 | 0.3 | 2026-11-01 | Tony/Claude | Added D20-D23.           |
+| 0.4 | 2026-11-01 | Tony/Claude | Added D24-D26.           |
 
 ---
 
@@ -130,3 +131,21 @@ the grey "out of date" look is correct at any interval.
 Network failures are shown as actions a user can take ("Not responding
 (timed out)", "Connection refused. Is IPP enabled on the printer?") rather
 than raw system error strings.
+
+### D24. Autostart through the Deskbar, no extra mechanism (2026-11-01)
+The Deskbar restores its replicants at login, and our replicant relaunches
+the background app when it isn't running (verified by a restart, FINDINGS
+F11). No launch_daemon entry or boot script is needed. Removing the tray
+icon therefore also turns autostart off, which is what a user expects.
+
+### D25. Milestone 6 split: 6a local package, 6b HaikuDepot (2026-11-01)
+6a (the .hpkg, built by `make package`) is fully under our control and
+testable now. 6b needs a tagged GitHub release, a README, and a recipe
+submitted to HaikuPorts for review by its maintainers.
+
+### D26. Package name and layout (2026-11-01)
+Package `printer_monitor` (Haiku naming: lowercase, underscores). App in
+`apps/PrinterMonitor`; a "Printer Monitor" link in the Deskbar's
+Applications menu so a user can bring the tray icon back after removing
+it; license and project docs in `documentation/packages/printer_monitor`.
+Version 0.1.0 (matches the app's version resource).

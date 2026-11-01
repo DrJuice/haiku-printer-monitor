@@ -5,6 +5,7 @@
 #              Monitor app (background app + Deskbar replicant in one
 #              executable). Output goes to build/.
 #              Usage: make          (build everything)
+#                     make package  (build the .hpkg in build/)
 #                     make clean    (remove build/)
 # License:     MIT (see LICENSE)
 # Author:      Tony (DrJuice), with Claude (Anthropic)
@@ -20,6 +21,8 @@
 #   0.4  2026-11-01  Tony/Claude   Added PrinterSources.o (milestone 5a).
 #   0.5  2026-11-01  Tony/Claude   Added SettingsWindow.o and MDNSBrowser.o
 #                                  to the app (milestone 5b).
+#   0.6  2026-11-01  Tony/Claude   Added "package" target: builds a Haiku
+#                                  .hpkg (milestone 6a).
 # ============================================================================
 
 CXX      := g++
@@ -37,7 +40,15 @@ APP_OBJS := $(BUILD)/main.o $(BUILD)/PrinterMonitorApp.o \
             $(BUILD)/PrinterMonitorView.o $(BUILD)/IPPClient.o \
             $(BUILD)/MDNSBrowser.o
 
-.PHONY: all clean
+VERSION  := 0.1.0
+REVISION := 1
+ARCH     := $(shell getarch 2>/dev/null || echo x86_64)
+PKG_DIR  := $(BUILD)/package
+PKG      := $(BUILD)/printer_monitor-$(VERSION)-$(REVISION)-$(ARCH).hpkg
+DOC_DIR  := $(PKG_DIR)/documentation/packages/printer_monitor
+MENU_DIR := $(PKG_DIR)/data/deskbar/menu/Applications
+
+.PHONY: all clean package
 
 all: $(BUILD)/mdns_probe $(BUILD)/ipp_probe $(BUILD)/PrinterMonitor
 
@@ -59,6 +70,20 @@ $(BUILD)/PrinterMonitor.rsrc: src/app/PrinterMonitor.rdef | $(BUILD)
 
 $(BUILD)/%.o: %.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Package layout: the app in apps/, a link in the Deskbar's Applications
+# menu (lets a user bring the tray icon back), and the license and docs.
+package: $(BUILD)/PrinterMonitor packaging/PrinterMonitor.PackageInfo
+	rm -rf $(PKG_DIR) $(PKG)
+	mkdir -p $(PKG_DIR)/apps $(MENU_DIR) $(DOC_DIR)
+	cp $(BUILD)/PrinterMonitor $(PKG_DIR)/apps/PrinterMonitor
+	mimeset -f $(PKG_DIR)/apps/PrinterMonitor
+	ln -s ../../../../apps/PrinterMonitor "$(MENU_DIR)/Printer Monitor"
+	cp LICENSE docs/*.md $(DOC_DIR)/
+	sed -e 's/@VERSION@/$(VERSION)-$(REVISION)/g' -e 's/@ARCH@/$(ARCH)/g' \
+		packaging/PrinterMonitor.PackageInfo > $(PKG_DIR)/.PackageInfo
+	package create -C $(PKG_DIR) $(PKG)
+	@echo "Built $(PKG)"
 
 $(BUILD):
 	mkdir -p $@

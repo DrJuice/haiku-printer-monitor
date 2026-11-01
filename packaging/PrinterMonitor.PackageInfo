@@ -1,0 +1,34 @@
+# ============================================================================
+# File:        PrinterMonitor.PackageInfo
+# Project:     haiku-printer-monitor
+# Component:   packaging
+# Description: Package metadata for the Haiku package (.hpkg). The Makefile
+#              "package" target fills in @VERSION@ and @ARCH@.
+# License:     MIT (see LICENSE)
+# Author:      Tony (DrJuice), with Claude (Anthropic)
+# ----------------------------------------------------------------------------
+# Revision History
+#   Rev  Date        Author        Changes
+#   0.1  2026-11-01  Tony/Claude   Initial creation (milestone 6a).
+# ============================================================================
+
+name			printer_monitor
+version			@VERSION@
+architecture	@ARCH@
+summary			"Printer status and toner levels in the Deskbar"
+description		"Printer Monitor shows your network printers' toner levels in the Deskbar and notifies you when a cartridge runs low or empty. It picks up printers set up in the Printers preferences automatically, can find printers on the network, and works with most IPP printers. Developed and tested with a Brother HL-3170CDW."
+packager		"Tony <16479690+DrJuice@users.noreply.github.com>"
+vendor			"DrJuice"
+copyrights		"2026 Tony (DrJuice)"
+licenses		"MIT"
+urls			"https://github.com/DrJuice/haiku-printer-monitor"
+
+provides {
+	printer_monitor = @VERSION@
+	app:PrinterMonitor = @VERSION@
+}
+
+requires {
+	haiku
+	lib:libstdc++
+}
