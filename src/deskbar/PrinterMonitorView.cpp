@@ -21,6 +21,10 @@
  *                                  printers needing attention, per-printer
  *                                  submenus (web page, Make default).
  *                                  Fixed unused-parameter warning in Draw().
+ *   0.3  2026-11-01  Tony/Claude   Milestone 5b: "Settings..." menu item
+ *                                  (opens the window in the app, not in the
+ *                                  Deskbar); staleness follows the user's
+ *                                  poll interval.
  * ============================================================================
  */
 
@@ -143,6 +147,7 @@ void
 PrinterMonitorView::_Init()
 {
 	fLastReceived = 0;
+	fPollMinutes = kDefaultPollMinutes;
 	fHaveStatus = false;
 	fCheckRunner = NULL;
 }
@@ -203,7 +208,8 @@ PrinterMonitorView::DetachedFromWindow()
 bool
 PrinterMonitorView::_IsStale() const
 {
-	return fHaveStatus && system_time() - fLastReceived > kStaleAfter;
+	return fHaveStatus
+		&& system_time() - fLastReceived > StaleAfter(fPollMinutes);
 }
 
 
@@ -306,6 +312,7 @@ PrinterMonitorView::MessageReceived(BMessage* message)
 					== B_OK; i++)
 				fPrinters.push_back(printer);
 			fNotice = message->GetString("notice", "");
+			fPollMinutes = message->GetInt32("interval", kDefaultPollMinutes);
 			fHaveStatus = true;
 			fLastReceived = system_time();
 			Invalidate();
@@ -325,6 +332,7 @@ PrinterMonitorView::MessageReceived(BMessage* message)
 		}
 
 		case kMsgSetDefault:
+		case kMsgShowSettings:
 		{
 			BMessenger app(kSignature);
 			app.SendMessage(message);
@@ -556,6 +564,8 @@ PrinterMonitorView::MouseDown(BPoint where)
 
 	menu->AddSeparatorItem();
 	menu->AddItem(new BMenuItem("Refresh now", new BMessage(kMsgRefresh)));
+	menu->AddItem(new BMenuItem("Settings" B_UTF8_ELLIPSIS,
+		new BMessage(kMsgShowSettings)));
 	menu->AddItem(new BMenuItem("Remove from Deskbar",
 		new BMessage(kMsgRemoveReplicant)));
 

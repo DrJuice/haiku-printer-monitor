@@ -10,6 +10,7 @@
  *              "key=value" lines:
  *                printer=<address>[,<resource>]   (one line per printer)
  *                default=<address>
+ *                interval=<minutes>
  * License:     MIT (see LICENSE)
  * Author:      Tony (DrJuice), with Claude (Anthropic)
  * ----------------------------------------------------------------------------
@@ -22,6 +23,11 @@
  *                                  once per new low/empty/stopped condition,
  *                                  new command-line options. Old settings
  *                                  (address=, resource=, port=) still load.
+ *   0.3  2026-11-01  Tony/Claude   Milestone 5b: settings window (opened from
+ *                                  the Deskbar menu), mDNS discovery on a
+ *                                  worker thread, poll interval setting
+ *                                  (interval=<minutes>), plain-language
+ *                                  error messages.
  * ============================================================================
  */
 
@@ -29,7 +35,9 @@
 #include "PrinterMonitorApp.h"
 
 #include "IPPClient.h"
+#include "MDNSBrowser.h"
 #include "Protocol.h"
+#include "SettingsWindow.h"
 
 #include <Deskbar.h>
 #include <File.h>
@@ -39,6 +47,7 @@
 #include <Path.h>
 #include <Roster.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -56,6 +65,77 @@ struct PollJob {
 	BString		resource;
 	uint16		port;
 };
+
+
+// Turns a failed query into a sentence a user can act on.
+BString
+FriendlyError(const IPPClient& client, status_t result)
+{
+	BString text;
+	if (result == B_TIMED_OUT)
+		text = "Not responding (timed out).";
+	else if (result == ECONNREFUSED)
+		text = "Connection refused. Is IPP enabled on the printer?";
+	else if (result == EHOSTUNREACH || result == ENETUNREACH)
+		text = "Not reachable from this network.";
+	else if (result == B_BAD_VALUE)
+		text = "The address must be a number, such as 192.168.1.20.";
+	else if (client.HTTPStatus() != 0 && client.HTTPStatus() != 200)
+		text << "The printer replied with HTTP error " << client.HTTPStatus()
+			<< ".";
+	else if (client.IPPStatus() > 0x00FF) {
+		char code[16];
+		snprintf(code, sizeof(code), "0x%04x", (int)client.IPPStatus());
+		text << "The printer reported an error (IPP " << code << ").";
+	} else
+		text << "Error while " << client.ErrorContext() << ": "
+			<< strerror(result);
+	return text;
+}
+
+
+// Runs on its own thread: one mDNS search, result posted to the app.
+status_t
+DiscoveryThread(void* /*data*/)
+{
+	MDNSBrowser browser;
+	std::vector<ServiceInstance> results;
+	status_t status = browser.Browse("_ipp._tcp.local", kDiscoveryTime,
+		kBrowseMulticast, results);
+	if (status != B_OK) {
+		// Port 5353 may be taken by another mDNS program; fall back to
+		// legacy unicast, which uses any free port.
+		status = browser.Browse("_ipp._tcp.local", kDiscoveryTime,
+			kBrowseLegacyUnicast, results);
+	}
+
+	BMessage message(kMsgDiscoveryResult);
+	if (status != B_OK) {
+		BString error("Search failed while ");
+		error << browser.ErrorContext() << ".";
+		message.AddString("error", error);
+	}
+
+	for (const ServiceInstance& instance : results) {
+		if (instance.address.empty())
+			continue;
+		BMessage found;
+		found.AddString("name", instance.instanceName.c_str());
+		found.AddString("address", instance.address.c_str());
+		BString resource("ipp/print");
+		for (const auto& entry : instance.txt) {
+			if (entry.first == "rp" && !entry.second.empty())
+				resource = entry.second.c_str();
+			else if (entry.first == "ty")
+				found.AddString("model", entry.second.c_str());
+		}
+		found.AddString("resource", resource);
+		message.AddMessage("found", &found);
+	}
+
+	be_app->PostMessage(&message);
+	return B_OK;
+}
 
 
 // Runs on its own thread: queries each printer in turn, posting one result
@@ -76,12 +156,8 @@ PollThread(void* data)
 		message.AddInt64("updated", (int64)time(NULL));
 		if (result == B_OK)
 			StatusToMessage(status, message);
-		else {
-			BString error;
-			error << "Error while " << client.ErrorContext() << ": "
-				<< strerror(result);
-			message.AddString("error", error);
-		}
+		else
+			message.AddString("error", FriendlyError(client, result));
 		be_app->PostMessage(&message);
 	}
 
@@ -133,6 +209,7 @@ PrintUsage()
 		"                                      (resource defaults to ipp/print)\n"
 		"  --remove-printer <address>          stop monitoring a manual printer\n"
 		"  --default <address>                 printer shown in the Deskbar\n"
+		"  --settings                          open the settings window\n"
 		"  --list                              list monitored printers\n"
 		"  --remove                            remove the Deskbar icon and quit\n"
 		"Printers set up in the Printers preferences are added automatically.\n");
@@ -145,9 +222,13 @@ PrintUsage()
 PrinterMonitorApp::PrinterMonitorApp()
 	:
 	BApplication(kSignature),
+	fPollMinutes(kDefaultPollMinutes),
 	fPollRunner(NULL),
 	fPollThread(-1),
-	fPolling(false)
+	fPolling(false),
+	fDiscoveryThread(-1),
+	fDiscovering(false),
+	fSettingsWindow(NULL)
 {
 	_LoadSettings();
 	_RefreshPrinterList();
@@ -172,29 +253,21 @@ PrinterMonitorApp::ArgvReceived(int32 argc, char** argv)
 			const char* resource = NULL;
 			if (i + 1 < argc && argv[i + 1][0] != '-')
 				resource = argv[++i];
-			bool known = false;
-			for (const PrinterEntry& printer : fManual) {
-				if (printer.address == address)
-					known = true;
-			}
-			if (!known)
-				fManual.push_back(MakeManual(address, resource));
+			_AddManual(address, resource);
 			printf("Added printer %s\n", address);
 			changed = true;
 		} else if (strcmp(argv[i], "--remove-printer") == 0 && i + 1 < argc) {
 			BString address(argv[++i]);
-			for (size_t j = 0; j < fManual.size(); j++) {
-				if (fManual[j].address == address) {
-					fManual.erase(fManual.begin() + j);
-					printf("Removed printer %s\n", address.String());
-					changed = true;
-					break;
-				}
+			if (_RemoveManual(address)) {
+				printf("Removed printer %s\n", address.String());
+				changed = true;
 			}
 		} else if (strcmp(argv[i], "--default") == 0 && i + 1 < argc) {
 			fDefault = argv[++i];
 			printf("Default printer: %s\n", fDefault.String());
 			changed = true;
+		} else if (strcmp(argv[i], "--settings") == 0) {
+			PostMessage(kMsgShowSettings);
 		} else if (strcmp(argv[i], "--list") == 0) {
 			_RefreshPrinterList();
 			_PrintList();
@@ -207,13 +280,8 @@ PrinterMonitorApp::ArgvReceived(int32 argc, char** argv)
 		}
 	}
 
-	if (changed) {
-		if (_SaveSettings() != B_OK)
-			fprintf(stderr, "Could not save the settings file.\n");
-		_RefreshPrinterList();
-		_Broadcast();
-		_StartPoll();
-	}
+	if (changed)
+		_Changed();
 }
 
 
@@ -223,7 +291,8 @@ PrinterMonitorApp::ReadyToRun()
 	_InstallReplicant();
 
 	BMessage poll(kMsgPoll);
-	fPollRunner = new BMessageRunner(BMessenger(this), &poll, kPollInterval);
+	fPollRunner = new BMessageRunner(BMessenger(this), &poll,
+		(bigtime_t)fPollMinutes * 60 * 1000000LL);
 	_StartPoll();
 }
 
@@ -257,6 +326,48 @@ PrinterMonitorApp::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case kMsgShowSettings:
+			_ShowSettings();
+			break;
+
+		case kMsgSettingsClosed:
+			fSettingsWindow = NULL;
+			fSettingsMessenger = BMessenger();
+			break;
+
+		case kMsgAddPrinter:
+		{
+			BString address = message->GetString("address", "");
+			if (address.IsEmpty())
+				break;
+			_AddManual(address.String(), message->GetString("resource", NULL));
+			_Changed();
+			break;
+		}
+
+		case kMsgRemovePrinter:
+		{
+			// Keys of network printers are their addresses; only manual
+			// entries can be removed here.
+			if (_RemoveManual(message->GetString("key", "")))
+				_Changed();
+			break;
+		}
+
+		case kMsgSetInterval:
+			_SetInterval(message->GetInt32("minutes", kDefaultPollMinutes));
+			break;
+
+		case kMsgDiscover:
+			_StartDiscovery();
+			break;
+
+		case kMsgDiscoveryResult:
+			fDiscovering = false;
+			fDiscoveryThread = -1;
+			fSettingsMessenger.SendMessage(message);
+			break;
+
 		case kMsgSubscribe:
 		{
 			BMessenger subscriber;
@@ -288,10 +399,11 @@ PrinterMonitorApp::QuitRequested()
 {
 	// Let a running poll cycle finish, so its thread never posts to an app
 	// that no longer exists.
-	if (fPolling && fPollThread >= 0) {
-		status_t result;
+	status_t result;
+	if (fPolling && fPollThread >= 0)
 		wait_for_thread(fPollThread, &result);
-	}
+	if (fDiscovering && fDiscoveryThread >= 0)
+		wait_for_thread(fDiscoveryThread, &result);
 	return true;
 }
 
@@ -336,6 +448,11 @@ PrinterMonitorApp::_LoadSettings()
 			fManual.push_back(MakeManual(address.c_str(), resource.c_str()));
 		} else if (key == "default")
 			fDefault = value.c_str();
+		else if (key == "interval") {
+			int minutes = atoi(value.c_str());
+			if (minutes >= 1 && minutes <= 1440)
+				fPollMinutes = minutes;
+		}
 		else if (key == "address")
 			oldAddress = value;
 		else if (key == "resource")
@@ -362,6 +479,7 @@ PrinterMonitorApp::_SaveSettings()
 		text << "printer=" << printer.address << "," << printer.resource << "\n";
 	if (!fDefault.IsEmpty())
 		text << "default=" << fDefault << "\n";
+	text << "interval=" << fPollMinutes << "\n";
 
 	BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
 	status = file.InitCheck();
@@ -369,6 +487,92 @@ PrinterMonitorApp::_SaveSettings()
 		return status;
 	ssize_t written = file.Write(text.String(), text.Length());
 	return written == text.Length() ? B_OK : B_IO_ERROR;
+}
+
+
+void
+PrinterMonitorApp::_AddManual(const char* address, const char* resource)
+{
+	for (const PrinterEntry& printer : fManual) {
+		if (printer.address == address)
+			return;
+	}
+	fManual.push_back(MakeManual(address, resource));
+}
+
+
+bool
+PrinterMonitorApp::_RemoveManual(const BString& address)
+{
+	for (size_t i = 0; i < fManual.size(); i++) {
+		if (fManual[i].address == address) {
+			fManual.erase(fManual.begin() + i);
+			return true;
+		}
+	}
+	return false;
+}
+
+
+void
+PrinterMonitorApp::_SetInterval(int32 minutes)
+{
+	if (minutes < 1 || minutes > 1440)
+		return;
+	fPollMinutes = minutes;
+	if (fPollRunner != NULL)
+		fPollRunner->SetInterval((bigtime_t)minutes * 60 * 1000000LL);
+	_SaveSettings();
+	_Broadcast();
+}
+
+
+// Save, rebuild the list, show it, and poll so new printers fill in quickly.
+void
+PrinterMonitorApp::_Changed()
+{
+	if (_SaveSettings() != B_OK)
+		fprintf(stderr, "Could not save the settings file.\n");
+	_RefreshPrinterList();
+	_Broadcast();
+	_StartPoll();
+}
+
+
+void
+PrinterMonitorApp::_ShowSettings()
+{
+	// LockTarget() fails if the window has already gone away.
+	if (fSettingsWindow != NULL && fSettingsMessenger.LockTarget()) {
+		fSettingsWindow->Activate();
+		fSettingsWindow->Unlock();
+	} else {
+		fSettingsWindow = new SettingsWindow(BMessenger(this));
+		fSettingsMessenger = BMessenger(fSettingsWindow);
+		fSettingsWindow->Show();
+	}
+
+	BMessage update;
+	_BuildUpdate(update);
+	fSettingsMessenger.SendMessage(&update);
+}
+
+
+void
+PrinterMonitorApp::_StartDiscovery()
+{
+	if (fDiscovering)
+		return;
+	thread_id thread = spawn_thread(DiscoveryThread, "printer discovery",
+		B_LOW_PRIORITY, NULL);
+	if (thread < 0 || resume_thread(thread) != B_OK) {
+		BMessage failed(kMsgDiscoveryResult);
+		failed.AddString("error", "Could not start the search.");
+		PostMessage(&failed);
+		return;
+	}
+	fDiscoveryThread = thread;
+	fDiscovering = true;
 }
 
 
@@ -548,6 +752,7 @@ PrinterMonitorApp::_BuildUpdate(BMessage& update) const
 {
 	update.MakeEmpty();
 	update.what = kMsgStatusUpdate;
+	update.AddInt32("interval", fPollMinutes);
 
 	if (fPrinters.empty()) {
 		update.AddString("notice", "No printers found. Set one up in the "
@@ -580,6 +785,8 @@ PrinterMonitorApp::_Broadcast()
 {
 	BMessage update;
 	_BuildUpdate(update);
+
+	fSettingsMessenger.SendMessage(&update);
 
 	// A 1 s timeout keeps a stuck Deskbar from blocking the app; subscribers
 	// that cannot be reached (replicant removed) are dropped.

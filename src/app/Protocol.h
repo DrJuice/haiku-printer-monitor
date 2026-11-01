@@ -17,6 +17,9 @@
  *                                  update now carries one "printer" message
  *                                  per printer. Added kMsgPollDone,
  *                                  kMsgSetDefault and NeedsAttention().
+ *   0.3  2026-11-01  Tony/Claude   Milestone 5b: settings window and
+ *                                  discovery messages; poll interval is now
+ *                                  a default (user setting).
  * ============================================================================
  */
 #ifndef PRINTER_MONITOR_PROTOCOL_H
@@ -45,14 +48,31 @@ enum {
 	kMsgSetDefault		= 'pmDf',	// replicant -> app: "key"
 	kMsgCheckConnection	= 'pmCk',	// replicant timer
 	kMsgOpenWebPage		= 'pmWb',	// replicant menu: "address"
-	kMsgRemoveReplicant	= 'pmRm'	// replicant menu
+	kMsgRemoveReplicant	= 'pmRm',	// replicant menu
+	kMsgShowSettings	= 'pmSh',	// replicant menu -> app
+	kMsgSettingsClosed	= 'pmSc',	// settings window -> app
+	kMsgAddPrinter		= 'pmAd',	// window -> app: "address", "resource"
+	kMsgRemovePrinter	= 'pmRp',	// window -> app: "key"
+	kMsgSetInterval		= 'pmIv',	// window -> app: "minutes"
+	kMsgDiscover		= 'pmDs',	// window -> app: run mDNS discovery
+	kMsgDiscoveryResult	= 'pmDr'	// app -> window: "found" messages
+									// (name, address, resource, model)
+									// and "error" if discovery failed
 };
 
 
-const bigtime_t kPollInterval	= 5 * 60 * 1000000LL;	// 5 minutes
-const bigtime_t kStaleAfter		= 12 * 60 * 1000000LL;	// > 2 missed polls
+const int32		kDefaultPollMinutes = 5;			// user can change it
 const bigtime_t kCheckInterval	= 15 * 1000000LL;		// replicant check
 const bigtime_t kQueryTimeout	= 10 * 1000000LL;		// one IPP request
+const bigtime_t kDiscoveryTime	= 4 * 1000000LL;		// mDNS listen time
+
+
+// Data is stale after two missed polls plus a little slack.
+inline bigtime_t
+StaleAfter(int32 pollMinutes)
+{
+	return (bigtime_t)(2 * pollMinutes + 2) * 60 * 1000000LL;
+}
 
 
 inline void
@@ -127,6 +147,7 @@ IsLow(const MarkerInfo& marker)
 }
 
 
+// kMsgStatusUpdate also carries "interval" (int32, poll minutes).
 // Per-printer fields inside each "printer" message of kMsgStatusUpdate:
 //   key, name, address, source (strings); usb, default, polled (bools);
 //   updated (int64 time_t); error (string, only when the query failed);

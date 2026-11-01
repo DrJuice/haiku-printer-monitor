@@ -17,6 +17,8 @@
  *   0.2  2026-11-01  Tony/Claude   Milestone 5a: multiple printers (stored as
  *                                  the app's "printer" messages), per-printer
  *                                  submenus with "Make default".
+ *   0.3  2026-11-01  Tony/Claude   Milestone 5b: "Settings..." menu item;
+ *                                  staleness follows the poll interval.
  * ============================================================================
  */
 #ifndef PRINTER_MONITOR_VIEW_H
@@ -65,6 +67,7 @@ private:
 			std::vector<BMessage>	fPrinters;	// one per printer
 			BString			fNotice;		// set when there are no printers
 			bigtime_t		fLastReceived;	// system_time() of last update
+			int32			fPollMinutes;	// from the app's updates
 			bool			fHaveStatus;
 			BMessageRunner*	fCheckRunner;
 };

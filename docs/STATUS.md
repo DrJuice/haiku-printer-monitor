@@ -11,6 +11,7 @@
 |-----|------------|-------------|--------------------------|
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation.        |
 | 0.2 | 2026-11-01 | Tony/Claude | Commit IDs; milestone 5 split into 5a/5b; Haiku printing works; driver phase rescoped. |
+| 0.3 | 2026-11-01 | Tony/Claude | 5a verified and committed; 5b delivered. |
 
 ---
 
@@ -43,8 +44,8 @@ effort.
 | 2  | IPP client + `ipp_probe`                    | Done, `22cacb9`       |
 | 4  | Background app + Deskbar replicant          | Done, `9053087`       |
 | -  | Project docs                                | Done, `e8f28ad`       |
-| 5a | Multiple printers (installed + manual), default printer, notifications | **Delivered, testing** |
-| 5b | Settings window, discovery with "Add" button | Next                 |
+| 5a | Multiple printers (installed + manual), default printer, notifications | Done, `8a69dbb` |
+| 5b | Settings window, discovery with "Add" button, poll interval, plain errors | **Delivered, testing** |
 | 6  | HaikuDepot package, autostart at login      | Planned               |
 | P2 | SNMP inventory (drum, belt, fuser, paper feed; experimental fine toner; serial for USB matching) | Planned (was milestone 3) |
 | P3 | USB printer status                          | Planned               |
@@ -69,7 +70,11 @@ effort.
 default printer, red bottom line when another printer needs attention,
 per-printer submenus, notifications, USB listed, command-line options
 `--add-printer`, `--remove-printer`, `--default`, `--list`.
-**5b (next):** settings window and mDNS discovery with "Add".
+**5b (delivered):** settings window (tray menu "Settings..." or
+`PrinterMonitor --settings`): monitored printers (make default, remove
+manual ones), add by address, "Find printers" (mDNS) with "Add selected",
+poll interval (1/5/15/30/60 minutes). Plain-language error messages.
+Stale-data threshold now follows the poll interval.
 
 ## What works today (verified on hardware)
 
@@ -84,8 +89,11 @@ per-printer submenus, notifications, USB listed, command-line options
 
 ## Known limitations
 
-- Discovery code is not yet wired into the app (5b).
-- No settings window yet (5b); configuration is by command line.
+- "Find printers" will not list the HL-3170CDW (it ignores Haiku's
+  multicast queries, FINDINGS F4); it is found as an installed printer.
+- Installed printers are removed in the Printers preferences, not in the
+  settings window.
+- Manually added printers always use port 631.
 - Printer addresses must be IPv4 numbers, not host names.
 - Notified conditions are not remembered across restarts, so a restart
   repeats current warnings once.
@@ -97,9 +105,11 @@ per-printer submenus, notifications, USB listed, command-line options
 
 - Build: `make`. Clean: `make clean`.
 - Run: `./build/PrinterMonitor` (installed printers are picked up
-  automatically); `--add-printer <ip>` for others; `--list` to check.
+  automatically); `--add-printer <ip>` for others; `--list` to check;
+  `--settings` opens the settings window.
 - Settings file: `~/config/settings/PrinterMonitor` (plain key=value:
-  `printer=<ip>[,<resource>]`, `default=<ip>`). Milestone 4 settings
+  `printer=<ip>[,<resource>]`, `default=<ip>`, `interval=<minutes>`).
+  Milestone 4 settings
   (`address=`) are converted on load.
 - **Before rebuilding the app**, run `./build/PrinterMonitor --remove`:
   Deskbar keeps the executable loaded.

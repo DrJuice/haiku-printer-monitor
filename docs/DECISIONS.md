@@ -9,6 +9,7 @@ reasoning survives after the conversation that produced it.
 |-----|------------|-------------|--------------------------|
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation (D1-D14). |
 | 0.2 | 2026-11-01 | Tony/Claude | Added D15-D19.           |
+| 0.3 | 2026-11-01 | Tony/Claude | Added D20-D23.           |
 
 ---
 
@@ -110,3 +111,22 @@ listed as "status not available over USB yet".
 Haiku already prints correctly to the HL-3170CDW with its PCL6 driver over
 IPP (FINDINGS F10). A new driver is unnecessary; later work targets color,
 duplex, and auto-filling the IPP URL from discovery.
+
+### D20. The settings window lives in the background app (2026-11-01)
+Opened from the Deskbar menu, but created by the app, never inside the
+Deskbar process (same reasoning as D11). The window only sends requests and
+displays what the app reports back; the app owns all state and settings.
+
+### D21. Discovery never adds printers by itself (2026-11-01)
+"Find printers" lists what answers; the user chooses "Add selected". On
+shared networks (offices, apartments) silently monitoring other people's
+printers would be wrong.
+
+### D22. Poll interval is a user setting: 1, 5, 15, 30 or 60 minutes (2026-11-01)
+Default 5. Data counts as stale after two missed polls plus 2 minutes, so
+the grey "out of date" look is correct at any interval.
+
+### D23. Plain-language errors (2026-11-01)
+Network failures are shown as actions a user can take ("Not responding
+(timed out)", "Connection refused. Is IPP enabled on the printer?") rather
+than raw system error strings.

@@ -18,6 +18,8 @@
 #                                  (milestone 4). Switched to one pattern
 #                                  rule with automatic header dependencies.
 #   0.4  2026-11-01  Tony/Claude   Added PrinterSources.o (milestone 5a).
+#   0.5  2026-11-01  Tony/Claude   Added SettingsWindow.o and MDNSBrowser.o
+#                                  to the app (milestone 5b).
 # ============================================================================
 
 CXX      := g++
@@ -31,8 +33,9 @@ BUILD    := build
 vpath %.cpp src/discovery src/status src/app src/deskbar tools
 
 APP_OBJS := $(BUILD)/main.o $(BUILD)/PrinterMonitorApp.o \
-            $(BUILD)/PrinterSources.o $(BUILD)/PrinterMonitorView.o \
-            $(BUILD)/IPPClient.o
+            $(BUILD)/PrinterSources.o $(BUILD)/SettingsWindow.o \
+            $(BUILD)/PrinterMonitorView.o $(BUILD)/IPPClient.o \
+            $(BUILD)/MDNSBrowser.o
 
 .PHONY: all clean
 

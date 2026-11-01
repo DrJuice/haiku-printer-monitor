@@ -19,6 +19,8 @@
  *                                  installed + manual sources, default
  *                                  printer, notifications, one poll thread
  *                                  per cycle.
+ *   0.3  2026-11-01  Tony/Claude   Milestone 5b: settings window, mDNS
+ *                                  discovery thread, user poll interval.
  * ============================================================================
  */
 #ifndef PRINTER_MONITOR_APP_H
@@ -38,6 +40,7 @@
 
 
 class BMessageRunner;
+class SettingsWindow;
 
 
 struct MonitoredPrinter {
@@ -59,6 +62,13 @@ public:
 	virtual	bool			QuitRequested();
 
 private:
+			void			_AddManual(const char* address,
+								const char* resource);
+			bool			_RemoveManual(const BString& address);
+			void			_SetInterval(int32 minutes);
+			void			_Changed();
+			void			_ShowSettings();
+			void			_StartDiscovery();
 			void			_LoadSettings();
 			status_t		_SaveSettings();
 			void			_InstallReplicant();
@@ -74,11 +84,17 @@ private:
 
 			std::vector<PrinterEntry>		fManual;
 			BString							fDefault;
+			int32							fPollMinutes;
 			std::vector<MonitoredPrinter>	fPrinters;
 
 			BMessageRunner*	fPollRunner;
 			thread_id		fPollThread;
 			bool			fPolling;
+
+			thread_id		fDiscoveryThread;
+			bool			fDiscovering;
+			SettingsWindow*	fSettingsWindow;	// only touched while locked
+			BMessenger		fSettingsMessenger;	// safe even after it closes
 
 			std::vector<BMessenger>	fSubscribers;
 };
