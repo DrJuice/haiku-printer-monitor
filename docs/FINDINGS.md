@@ -9,6 +9,7 @@ behind each. "Confirmed" means checked against an independent source;
 | Rev | Date       | Author      | Changes                  |
 |-----|------------|-------------|--------------------------|
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation (F1-F9, open questions). |
+| 0.2 | 2026-11-01 | Tony/Claude | F8: installed printer storage; F10: printing works; open question 3 answered. |
 
 ---
 
@@ -106,7 +107,23 @@ Other useful OIDs under `...5.5`: `.1.0` serial, `.6.0` total page count,
   fields `add_on` (app signature) and `class`; installed with
   `BDeskbar::AddItem(entry_ref*)`.
 - SSH keys live in `~/config/settings/ssh`.
+- Installed printers (Printers preferences): one folder per printer in
+  `~/config/settings/printers/`, MIME type `application/x-vnd.Be.printer`,
+  attributes `Printer Name`, `Driver Name`, `transport`,
+  `transport_address`, `connection`, `state`. Address formats, from the
+  transport add-on sources: IPP = full URL; HP JetDirect = `host:port`;
+  LPR = host; USB = a device key. **The IPP transport only stores its URL
+  at the first print job** (it shows a dialog, tests the URL with
+  Get-Printer-Attributes, then writes `transport_address`). The built-in
+  "Preview" printer has transport empty and connection "Local".
 - Tracker: Settings > Windows > "Single window navigation".
+
+## F10. Printing from Haiku works (confirmed)
+
+Printer added in Printers preferences as "Brother", driver "PCL6
+Compatible", transport IPP, URL `http://192.168.5.70:631/ipp/print`.
+A text page from StyledEdit printed correctly. Not yet tested: color,
+duplex, images.
 
 ## F9. USB (not yet tested)
 
@@ -124,6 +141,6 @@ Other useful OIDs under `...5.5`: `.1.0` serial, `.6.0` total page count,
    and a Haiku query byte-for-byte with `tcpdump -X`. Possibly worth a
    Haiku bug report if a stack difference is found.
 2. **Are 0x6F-0x72 real fine toner levels?** See F7 validation plan.
-3. **How do Haiku's installed printers store their addresses?** Needed for
-   milestone 5 (reading installed network printers).
+3. ~~How do Haiku's installed printers store their addresses?~~
+   Answered in F8.
 4. **What does the printer report over USB?** Phase 3 experiment.

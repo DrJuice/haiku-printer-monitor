@@ -4,16 +4,23 @@
  * Project:     haiku-printer-monitor
  * Component:   deskbar
  * Description: Deskbar replicant implementation. Draws up to four vertical
- *              bars (one per supply, in the supply's own color). A red
- *              outline marks a LOW or EMPTY supply. Grey outlines only:
- *              no data yet, printer unreachable, or the data is stale.
- *              Hover for a tooltip; click for details and actions.
+ *              bars for the default printer (one per supply, in its own
+ *              color). A red outline marks a LOW or EMPTY supply. A red line
+ *              along the bottom means another printer needs attention.
+ *              Grey outlines only: no data yet, printer unreachable, or the
+ *              data is stale. Hover for a tooltip; click for details and
+ *              actions.
  * License:     MIT (see LICENSE)
  * Author:      Tony (DrJuice), with Claude (Anthropic)
  * ----------------------------------------------------------------------------
  * Revision History
  *   Rev  Date        Author        Changes
  *   0.1  2026-11-01  Tony/Claude   Initial creation (Phase 1, milestone 4).
+ *   0.2  2026-11-01  Tony/Claude   Milestone 5a: multiple printers, default
+ *                                  printer drawn, red bottom line for other
+ *                                  printers needing attention, per-printer
+ *                                  submenus (web page, Make default).
+ *                                  Fixed unused-parameter warning in Draw().
  * ============================================================================
  */
 
@@ -23,6 +30,7 @@
 #include "Protocol.h"
 
 #include <Deskbar.h>
+#include <Menu.h>
 #include <MenuItem.h>
 #include <MessageRunner.h>
 #include <Messenger.h>
@@ -84,6 +92,20 @@ StateName(int32 state)
 }
 
 
+// Short state for a submenu title.
+BString
+Summary(const BMessage& printer)
+{
+	if (printer.GetBool("usb", false))
+		return "USB";
+	if (!printer.GetBool("polled", false))
+		return "checking" B_UTF8_ELLIPSIS;
+	if (printer.HasString("error"))
+		return "unreachable";
+	return NeedsAttention(printer) ? "needs attention" : "OK";
+}
+
+
 }	// namespace
 
 
@@ -120,7 +142,6 @@ PrinterMonitorView::~PrinterMonitorView()
 void
 PrinterMonitorView::_Init()
 {
-	fUpdated = 0;
 	fLastReceived = 0;
 	fHaveStatus = false;
 	fCheckRunner = NULL;
@@ -186,13 +207,43 @@ PrinterMonitorView::_IsStale() const
 }
 
 
+const BMessage*
+PrinterMonitorView::_DefaultPrinter() const
+{
+	for (const BMessage& printer : fPrinters) {
+		if (printer.GetBool("default", false))
+			return &printer;
+	}
+	return fPrinters.empty() ? NULL : &fPrinters[0];
+}
+
+
+int32
+PrinterMonitorView::_OthersNeedingAttention() const
+{
+	const BMessage* defaultPrinter = _DefaultPrinter();
+	int32 count = 0;
+	for (const BMessage& printer : fPrinters) {
+		if (&printer != defaultPrinter && NeedsAttention(printer))
+			count++;
+	}
+	return count;
+}
+
+
 void
-PrinterMonitorView::Draw(BRect updateRect)
+PrinterMonitorView::Draw(BRect /*updateRect*/)
 {
 	BRect bounds = Bounds();
-	bool showLevels = fHaveStatus && !_IsStale() && fError.IsEmpty();
+	const BMessage* printer = _DefaultPrinter();
 
-	size_t count = std::min(fStatus.markers.size(), kMaxBars);
+	PrinterStatus status;
+	bool showLevels = printer != NULL && !_IsStale()
+		&& printer->GetBool("polled", false) && !printer->HasString("error");
+	if (showLevels)
+		MessageToStatus(*printer, status);
+
+	size_t count = std::min(status.markers.size(), kMaxBars);
 	if (count == 0)
 		count = kMaxBars;	// empty outlines as a placeholder
 
@@ -210,8 +261,8 @@ PrinterMonitorView::Draw(BRect updateRect)
 	for (size_t i = 0; i < count; i++) {
 		BRect bar(left, bounds.top + 1, left + barWidth - 1,
 			bounds.bottom - 1);
-		const MarkerInfo* marker = showLevels && i < fStatus.markers.size()
-			? &fStatus.markers[i] : NULL;
+		const MarkerInfo* marker = i < status.markers.size()
+			? &status.markers[i] : NULL;
 
 		bool warn = marker != NULL && (IsLow(*marker) || IsEmpty(*marker));
 		SetHighColor(warn ? alert : outline);
@@ -233,6 +284,13 @@ PrinterMonitorView::Draw(BRect updateRect)
 
 		left += barWidth + gap;
 	}
+
+	// Another printer needs attention: red line along the bottom edge.
+	if (!_IsStale() && _OthersNeedingAttention() > 0) {
+		SetHighColor(alert);
+		StrokeLine(BPoint(bounds.left, bounds.bottom),
+			BPoint(bounds.right, bounds.bottom));
+	}
 }
 
 
@@ -242,10 +300,12 @@ PrinterMonitorView::MessageReceived(BMessage* message)
 	switch (message->what) {
 		case kMsgStatusUpdate:
 		{
-			MessageToStatus(*message, fStatus);
-			fAddress = message->GetString("address", "");
-			fError = message->GetString("error", "");
-			fUpdated = message->GetInt64("updated", 0);
+			fPrinters.clear();
+			BMessage printer;
+			for (int32 i = 0; message->FindMessage("printer", i, &printer)
+					== B_OK; i++)
+				fPrinters.push_back(printer);
+			fNotice = message->GetString("notice", "");
 			fHaveStatus = true;
 			fLastReceived = system_time();
 			Invalidate();
@@ -264,12 +324,20 @@ PrinterMonitorView::MessageReceived(BMessage* message)
 			break;
 		}
 
+		case kMsgSetDefault:
+		{
+			BMessenger app(kSignature);
+			app.SendMessage(message);
+			break;
+		}
+
 		case kMsgOpenWebPage:
 		{
-			if (fAddress.IsEmpty())
+			BString address = message->GetString("address", "");
+			if (address.IsEmpty())
 				break;
 			BString url("http://");
-			url << fAddress;
+			url << address;
 			const char* args[] = { url.String(), NULL };
 			be_roster->Launch("application/x-vnd.Be.URL.http", 1, args);
 			break;
@@ -316,52 +384,55 @@ PrinterMonitorView::_CheckConnection()
 
 
 void
-PrinterMonitorView::_BuildLines(std::vector<BString>& lines) const
+PrinterMonitorView::_PrinterLines(const BMessage& printer,
+	std::vector<BString>& lines) const
 {
-	if (!fHaveStatus) {
-		lines.push_back("Printer Monitor: waiting for status" B_UTF8_ELLIPSIS);
+	BString title(printer.GetString("name", ""));
+	BString address(printer.GetString("address", ""));
+	if (!address.IsEmpty() && address != title)
+		title << " (" << address << ")";
+	lines.push_back(title);
+
+	if (!printer.GetBool("polled", false) && !printer.GetBool("usb", false)) {
+		lines.push_back("Checking" B_UTF8_ELLIPSIS);
 		return;
 	}
 
-	if (!fError.IsEmpty()) {
-		BString line;
-		if (!fAddress.IsEmpty())
-			line << fAddress << ": ";
-		line << fError;
-		lines.push_back(line);
-	} else {
-		BString title(fStatus.makeAndModel.c_str());
-		if (!fAddress.IsEmpty())
-			title << " (" << fAddress << ")";
-		lines.push_back(title);
-
-		for (const MarkerInfo& marker : fStatus.markers) {
-			BString line(marker.name.c_str());
-			int32 percent = LevelPercent(marker);
-			if (percent >= 0)
-				line << ": " << percent << "%";
-			else if (marker.level == -3)
-				line << ": some left";
-			else
-				line << ": unknown";
-			if (IsEmpty(marker))
-				line << " (empty)";
-			else if (IsLow(marker))
-				line << " (low)";
-			lines.push_back(line);
-		}
-
-		BString state("Status: ");
-		state << StateName(fStatus.state);
-		for (const std::string& reason : fStatus.stateReasons) {
-			if (reason != "none")
-				state << ", " << reason.c_str();
-		}
-		lines.push_back(state);
+	BString error(printer.GetString("error", ""));
+	if (!error.IsEmpty()) {
+		lines.push_back(error);
+		return;
 	}
 
-	if (fUpdated > 0) {
-		time_t when = (time_t)fUpdated;
+	PrinterStatus status;
+	MessageToStatus(printer, status);
+	for (const MarkerInfo& marker : status.markers) {
+		BString line(marker.name.c_str());
+		int32 percent = LevelPercent(marker);
+		if (percent >= 0)
+			line << ": " << percent << "%";
+		else if (marker.level == -3)
+			line << ": some left";
+		else
+			line << ": unknown";
+		if (IsEmpty(marker))
+			line << " (empty)";
+		else if (IsLow(marker))
+			line << " (low)";
+		lines.push_back(line);
+	}
+
+	BString state("Status: ");
+	state << StateName(status.state);
+	for (const std::string& reason : status.stateReasons) {
+		if (reason != "none")
+			state << ", " << reason.c_str();
+	}
+	lines.push_back(state);
+
+	int64 updated = printer.GetInt64("updated", 0);
+	if (updated > 0) {
+		time_t when = (time_t)updated;
 		char text[32];
 		strftime(text, sizeof(text), "%H:%M", localtime(&when));
 		BString line("Last checked ");
@@ -369,6 +440,65 @@ PrinterMonitorView::_BuildLines(std::vector<BString>& lines) const
 		if (_IsStale())
 			line << " (out of date)";
 		lines.push_back(line);
+	}
+}
+
+
+// Tooltip: the default printer in full, plus a one-line summary of others.
+void
+PrinterMonitorView::_BuildLines(std::vector<BString>& lines) const
+{
+	if (!fHaveStatus) {
+		lines.push_back("Printer Monitor: waiting for status" B_UTF8_ELLIPSIS);
+		return;
+	}
+	if (!fNotice.IsEmpty()) {
+		lines.push_back(fNotice);
+		return;
+	}
+
+	const BMessage* printer = _DefaultPrinter();
+	if (printer != NULL)
+		_PrinterLines(*printer, lines);
+
+	if (fPrinters.size() > 1) {
+		BString line;
+		line << "Other printers: " << (int32)(fPrinters.size() - 1);
+		int32 attention = _OthersNeedingAttention();
+		if (attention > 0)
+			line << " (" << attention << " need attention)";
+		lines.push_back(line);
+	}
+}
+
+
+void
+PrinterMonitorView::_AddPrinterItems(BMenu* menu, const BMessage& printer,
+	bool isDefault)
+{
+	std::vector<BString> lines;
+	_PrinterLines(printer, lines);
+	for (const BString& line : lines) {
+		BMenuItem* item = new BMenuItem(line.String(), NULL);
+		item->SetEnabled(false);
+		menu->AddItem(item);
+	}
+
+	BString address(printer.GetString("address", ""));
+	if (address.IsEmpty() && isDefault)
+		return;
+
+	menu->AddSeparatorItem();
+	if (!address.IsEmpty()) {
+		BMessage* open = new BMessage(kMsgOpenWebPage);
+		open->AddString("address", address);
+		menu->AddItem(new BMenuItem("Open printer web page", open));
+	}
+	if (!isDefault) {
+		BMessage* makeDefault = new BMessage(kMsgSetDefault);
+		makeDefault->AddString("key", printer.GetString("key", ""));
+		menu->AddItem(new BMenuItem("Show in Deskbar (make default)",
+			makeDefault));
 	}
 }
 
@@ -389,26 +519,43 @@ PrinterMonitorView::_UpdateToolTip()
 }
 
 
+// Default printer's details at the top, other printers as submenus.
 void
 PrinterMonitorView::MouseDown(BPoint where)
 {
 	BPopUpMenu* menu = new BPopUpMenu(B_EMPTY_STRING, false, false);
 
-	std::vector<BString> lines;
-	_BuildLines(lines);
-	for (const BString& line : lines) {
-		BMenuItem* item = new BMenuItem(line.String(), NULL);
-		item->SetEnabled(false);
-		menu->AddItem(item);
+	const BMessage* defaultPrinter = _DefaultPrinter();
+	if (!fHaveStatus || !fNotice.IsEmpty() || defaultPrinter == NULL) {
+		std::vector<BString> lines;
+		_BuildLines(lines);
+		for (const BString& line : lines) {
+			BMenuItem* item = new BMenuItem(line.String(), NULL);
+			item->SetEnabled(false);
+			menu->AddItem(item);
+		}
+	} else {
+		_AddPrinterItems(menu, *defaultPrinter, true);
+
+		bool first = true;
+		for (const BMessage& printer : fPrinters) {
+			if (&printer == defaultPrinter)
+				continue;
+			if (first) {
+				menu->AddSeparatorItem();
+				first = false;
+			}
+			BString title(printer.GetString("name", ""));
+			title << " (" << Summary(printer) << ")";
+			BMenu* submenu = new BMenu(title.String());
+			_AddPrinterItems(submenu, printer, false);
+			submenu->SetTargetForItems(this);
+			menu->AddItem(submenu);
+		}
 	}
 
 	menu->AddSeparatorItem();
 	menu->AddItem(new BMenuItem("Refresh now", new BMessage(kMsgRefresh)));
-	BMenuItem* webPage = new BMenuItem("Open printer web page",
-		new BMessage(kMsgOpenWebPage));
-	webPage->SetEnabled(!fAddress.IsEmpty());
-	menu->AddItem(webPage);
-	menu->AddSeparatorItem();
 	menu->AddItem(new BMenuItem("Remove from Deskbar",
 		new BMessage(kMsgRemoveReplicant)));
 

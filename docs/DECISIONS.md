@@ -8,6 +8,7 @@ reasoning survives after the conversation that produced it.
 | Rev | Date       | Author      | Changes                  |
 |-----|------------|-------------|--------------------------|
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation (D1-D14). |
+| 0.2 | 2026-11-01 | Tony/Claude | Added D15-D19.           |
 
 ---
 
@@ -82,3 +83,30 @@ matched by serial number and monitored over the network.
 ### D14. Process: plain-language labels and decision rules (2026-11-01)
 Every command is labeled [MAC] or [HAIKU]; one step at a time; before a
 test, state how each result will be acted on, to avoid repeating tests.
+
+### D15. Split milestone 5 into 5a (engine) and 5b (settings UI) (2026-11-01)
+Multiple printers, notifications, and the printer list are tested from the
+command line first; the settings window and discovery "Add" button come in
+5b on top of a proven engine. Smaller, testable steps.
+
+### D16. Unreachable printers don't trigger the red alert (2026-11-01)
+Only reachable printers with a low/empty supply or a stopped state count as
+"needs attention". Otherwise a laptop away from home would show a permanent
+alert. Unreachable printers are still shown in the menu.
+
+### D17. Installed printers are read from Haiku's settings (2026-11-01)
+Each printer in the Printers preferences is a folder in
+`~/config/settings/printers` whose `transport` and `transport_address`
+attributes give the connection (see FINDINGS F8). Installed printers win
+over manual entries for the same address (they have a proper name).
+JetDirect and LPR printers are polled over IPP at host:631/ipp/print.
+
+### D18. USB-to-network matching moves to Phase 2 (2026-11-01)
+Matching an installed USB printer to its network twin needs the printer's
+serial number, which we read over SNMP. Until Phase 2, USB printers are
+listed as "status not available over USB yet".
+
+### D19. The "driver" phase becomes "fill printing gaps" (2026-11-01)
+Haiku already prints correctly to the HL-3170CDW with its PCL6 driver over
+IPP (FINDINGS F10). A new driver is unnecessary; later work targets color,
+duplex, and auto-filling the IPP URL from discovery.

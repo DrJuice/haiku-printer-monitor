@@ -17,6 +17,7 @@
 #   0.3  2026-11-01  Tony/Claude   Added PrinterMonitor app + replicant
 #                                  (milestone 4). Switched to one pattern
 #                                  rule with automatic header dependencies.
+#   0.4  2026-11-01  Tony/Claude   Added PrinterSources.o (milestone 5a).
 # ============================================================================
 
 CXX      := g++
@@ -30,7 +31,8 @@ BUILD    := build
 vpath %.cpp src/discovery src/status src/app src/deskbar tools
 
 APP_OBJS := $(BUILD)/main.o $(BUILD)/PrinterMonitorApp.o \
-            $(BUILD)/PrinterMonitorView.o $(BUILD)/IPPClient.o
+            $(BUILD)/PrinterSources.o $(BUILD)/PrinterMonitorView.o \
+            $(BUILD)/IPPClient.o
 
 .PHONY: all clean
 

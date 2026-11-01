@@ -10,6 +10,7 @@
 | Rev | Date       | Author      | Changes                  |
 |-----|------------|-------------|--------------------------|
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation.        |
+| 0.2 | 2026-11-01 | Tony/Claude | Commit IDs; milestone 5 split into 5a/5b; Haiku printing works; driver phase rescoped. |
 
 ---
 
@@ -38,15 +39,18 @@ effort.
 
 | #  | Milestone                                   | Status                |
 |----|---------------------------------------------|-----------------------|
-| 1  | mDNS browser + `mdns_probe`                 | Done, committed `1209fe7` |
-| 2  | IPP client + `ipp_probe`                    | Done, committed       |
-| 4  | Background app + Deskbar replicant          | Done, verify commit pushed |
-| 5  | Multiple printers, notifications, settings window | **Next**        |
+| 1  | mDNS browser + `mdns_probe`                 | Done, `1209fe7`       |
+| 2  | IPP client + `ipp_probe`                    | Done, `22cacb9`       |
+| 4  | Background app + Deskbar replicant          | Done, `9053087`       |
+| -  | Project docs                                | Done, `e8f28ad`       |
+| 5a | Multiple printers (installed + manual), default printer, notifications | **Delivered, testing** |
+| 5b | Settings window, discovery with "Add" button | Next                 |
 | 6  | HaikuDepot package, autostart at login      | Planned               |
-| P2 | SNMP inventory (drum, belt, fuser, paper feed; experimental fine toner) | Planned (was milestone 3) |
+| P2 | SNMP inventory (drum, belt, fuser, paper feed; experimental fine toner; serial for USB matching) | Planned (was milestone 3) |
 | P3 | USB printer status                          | Planned               |
+| P4 | Printing gaps: color, duplex, auto-filled IPP URL (see FINDINGS F10) | Planned (replaces "write a driver") |
 
-### Milestone 5 scope (agreed)
+### Milestone 5 scope (agreed; split into 5a and 5b, see DECISIONS D15)
 
 - Printer sources: Haiku's installed printers (network ones), mDNS
   discovery (offered with an "Add" button, never added silently), and
@@ -57,23 +61,34 @@ effort.
   condition.
 - Settings window: printers, default printer, poll interval.
 - Installed USB printers are listed as "status not available over USB yet",
-  unless they match a network printer by serial number.
-- Fix: unused-parameter warning in `PrinterMonitorView::Draw()`.
+  unless they match a network printer by serial number (matching needs the
+  SNMP serial, so it moves to Phase 2).
+- Fix: unused-parameter warning in `PrinterMonitorView::Draw()` (done, 5a).
+
+**5a (delivered):** printer list from installed printers + manual entries,
+default printer, red bottom line when another printer needs attention,
+per-printer submenus, notifications, USB listed, command-line options
+`--add-printer`, `--remove-printer`, `--default`, `--list`.
+**5b (next):** settings window and mDNS discovery with "Add".
 
 ## What works today (verified on hardware)
 
 - `mdns_probe -m`: receives printer replies (when another device asks).
 - `mdns_probe -a 192.168.5.70`: direct query finds the printer reliably.
 - `ipp_probe 192.168.5.70`: model, state, reasons, and four toner levels.
-- `PrinterMonitor`: tray icon with four colored bars, tooltip with levels
-  and status, click menu (details, Refresh now, Open printer web page,
-  Remove from Deskbar). Refresh verified.
+- `PrinterMonitor` (milestone 4): tray icon with four colored bars, tooltip
+  with levels and status, click menu (details, Refresh now, Open printer
+  web page, Remove from Deskbar). Refresh verified.
+- Printing from Haiku works: built-in "PCL6 Compatible" driver over the IPP
+  transport, `http://192.168.5.70:631/ipp/print`. Text printed correctly.
 
 ## Known limitations
 
-- Monitors **one** printer, set by `PrinterMonitor --set-printer <ip>`.
-- Discovery code is not yet wired into the app.
-- No notifications or settings window yet.
+- Discovery code is not yet wired into the app (5b).
+- No settings window yet (5b); configuration is by command line.
+- Printer addresses must be IPv4 numbers, not host names.
+- Notified conditions are not remembered across restarts, so a restart
+  repeats current warnings once.
 - Not packaged; runs from `build/`, and must be started once by hand.
 - The HL-3170CDW does not answer Haiku's multicast mDNS queries (see
   FINDINGS.md, open question 1). Direct queries work.
@@ -81,8 +96,11 @@ effort.
 ## Developer notes
 
 - Build: `make`. Clean: `make clean`.
-- Run: `./build/PrinterMonitor --set-printer 192.168.5.70`
-- Settings file: `~/config/settings/PrinterMonitor` (plain key=value).
+- Run: `./build/PrinterMonitor` (installed printers are picked up
+  automatically); `--add-printer <ip>` for others; `--list` to check.
+- Settings file: `~/config/settings/PrinterMonitor` (plain key=value:
+  `printer=<ip>[,<resource>]`, `default=<ip>`). Milestone 4 settings
+  (`address=`) are converted on load.
 - **Before rebuilding the app**, run `./build/PrinterMonitor --remove`:
   Deskbar keeps the executable loaded.
 - Files extracted from downloads carry future timestamps (UTC read as
@@ -91,7 +109,6 @@ effort.
 
 ## Pending actions for Tony
 
-- Confirm the milestone 4 commit was pushed.
 - When replacing the black toner: run, before and after,
   `snmpget -v1 -c public 192.168.5.70 1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.8.0`
   to validate the fine toner fields (see FINDINGS.md).

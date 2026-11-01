@@ -7,13 +7,21 @@
  *              on a worker thread so the app never blocks; replicants
  *              subscribe with a BMessenger and receive every new status.
  *              Settings live in ~/config/settings/PrinterMonitor as plain
- *              "key=value" lines (address, resource, port).
+ *              "key=value" lines:
+ *                printer=<address>[,<resource>]   (one line per printer)
+ *                default=<address>
  * License:     MIT (see LICENSE)
  * Author:      Tony (DrJuice), with Claude (Anthropic)
  * ----------------------------------------------------------------------------
  * Revision History
  *   Rev  Date        Author        Changes
  *   0.1  2026-11-01  Tony/Claude   Initial creation (Phase 1, milestone 4).
+ *   0.2  2026-11-01  Tony/Claude   Milestone 5a: printer list from installed
+ *                                  printers + manual entries (deduplicated by
+ *                                  address), default printer, notifications
+ *                                  once per new low/empty/stopped condition,
+ *                                  new command-line options. Old settings
+ *                                  (address=, resource=, port=) still load.
  * ============================================================================
  */
 
@@ -27,6 +35,7 @@
 #include <File.h>
 #include <FindDirectory.h>
 #include <MessageRunner.h>
+#include <Notification.h>
 #include <Path.h>
 #include <Roster.h>
 
@@ -34,45 +43,50 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <map>
 #include <sstream>
-#include <string>
 
 
 namespace {
 
 
 struct PollJob {
+	BString		key;
 	BString		address;
 	BString		resource;
 	uint16		port;
 };
 
 
-// Runs on its own thread: one IPP request, result posted to the app.
+// Runs on its own thread: queries each printer in turn, posting one result
+// per printer, then kMsgPollDone.
 status_t
 PollThread(void* data)
 {
-	PollJob* job = (PollJob*)data;
+	std::vector<PollJob>* jobs = (std::vector<PollJob>*)data;
 
-	IPPClient client;
-	PrinterStatus status;
-	status_t result = client.GetStatus(job->address.String(), job->port,
-		job->resource.String(), kQueryTimeout, status);
+	for (const PollJob& job : *jobs) {
+		IPPClient client;
+		PrinterStatus status;
+		status_t result = client.GetStatus(job.address.String(), job.port,
+			job.resource.String(), kQueryTimeout, status);
 
-	BMessage message(kMsgPollResult);
-	message.AddString("address", job->address);
-	message.AddInt64("updated", (int64)time(NULL));
-	if (result == B_OK)
-		StatusToMessage(status, message);
-	else {
-		BString error;
-		error << "Error while " << client.ErrorContext() << ": "
-			<< strerror(result);
-		message.AddString("error", error);
+		BMessage message(kMsgPollResult);
+		message.AddString("key", job.key);
+		message.AddInt64("updated", (int64)time(NULL));
+		if (result == B_OK)
+			StatusToMessage(status, message);
+		else {
+			BString error;
+			error << "Error while " << client.ErrorContext() << ": "
+				<< strerror(result);
+			message.AddString("error", error);
+		}
+		be_app->PostMessage(&message);
 	}
 
-	be_app->PostMessage(&message);
-	delete job;
+	be_app->PostMessage(kMsgPollDone);
+	delete jobs;
 	return B_OK;
 }
 
@@ -98,14 +112,30 @@ Trim(const std::string& text)
 }
 
 
+PrinterEntry
+MakeManual(const char* address, const char* resource)
+{
+	PrinterEntry printer;
+	printer.address = address;
+	printer.name = address;
+	printer.source = "manual";
+	if (resource != NULL && resource[0] != '\0')
+		printer.resource = resource;
+	return printer;
+}
+
+
 void
 PrintUsage()
 {
-	printf("Usage: PrinterMonitor [--set-printer address [resource]]"
-		" [--remove]\n"
-		"  --set-printer  save the printer to monitor (resource defaults to"
-		" ipp/print)\n"
-		"  --remove       remove the Deskbar icon and quit\n");
+	printf("Usage: PrinterMonitor [options]\n"
+		"  --add-printer <address> [resource]  monitor a network printer\n"
+		"                                      (resource defaults to ipp/print)\n"
+		"  --remove-printer <address>          stop monitoring a manual printer\n"
+		"  --default <address>                 printer shown in the Deskbar\n"
+		"  --list                              list monitored printers\n"
+		"  --remove                            remove the Deskbar icon and quit\n"
+		"Printers set up in the Printers preferences are added automatically.\n");
 }
 
 
@@ -115,14 +145,12 @@ PrintUsage()
 PrinterMonitorApp::PrinterMonitorApp()
 	:
 	BApplication(kSignature),
-	fResource("ipp/print"),
-	fPort(631),
 	fPollRunner(NULL),
 	fPollThread(-1),
-	fPolling(false),
-	fHaveStatus(false)
+	fPolling(false)
 {
 	_LoadSettings();
+	_RefreshPrinterList();
 }
 
 
@@ -135,17 +163,41 @@ PrinterMonitorApp::~PrinterMonitorApp()
 void
 PrinterMonitorApp::ArgvReceived(int32 argc, char** argv)
 {
+	bool changed = false;
+
 	for (int32 i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "--set-printer") == 0 && i + 1 < argc) {
-			fAddress = argv[++i];
+		if ((strcmp(argv[i], "--add-printer") == 0
+				|| strcmp(argv[i], "--set-printer") == 0) && i + 1 < argc) {
+			const char* address = argv[++i];
+			const char* resource = NULL;
 			if (i + 1 < argc && argv[i + 1][0] != '-')
-				fResource = argv[++i];
-			if (_SaveSettings() == B_OK) {
-				printf("Printer set to %s (%s)\n", fAddress.String(),
-					fResource.String());
-			} else
-				fprintf(stderr, "Could not save the settings file.\n");
-			_StartPoll();
+				resource = argv[++i];
+			bool known = false;
+			for (const PrinterEntry& printer : fManual) {
+				if (printer.address == address)
+					known = true;
+			}
+			if (!known)
+				fManual.push_back(MakeManual(address, resource));
+			printf("Added printer %s\n", address);
+			changed = true;
+		} else if (strcmp(argv[i], "--remove-printer") == 0 && i + 1 < argc) {
+			BString address(argv[++i]);
+			for (size_t j = 0; j < fManual.size(); j++) {
+				if (fManual[j].address == address) {
+					fManual.erase(fManual.begin() + j);
+					printf("Removed printer %s\n", address.String());
+					changed = true;
+					break;
+				}
+			}
+		} else if (strcmp(argv[i], "--default") == 0 && i + 1 < argc) {
+			fDefault = argv[++i];
+			printf("Default printer: %s\n", fDefault.String());
+			changed = true;
+		} else if (strcmp(argv[i], "--list") == 0) {
+			_RefreshPrinterList();
+			_PrintList();
 		} else if (strcmp(argv[i], "--remove") == 0) {
 			BDeskbar deskbar;
 			deskbar.RemoveItem(kReplicantName);
@@ -153,6 +205,14 @@ PrinterMonitorApp::ArgvReceived(int32 argc, char** argv)
 		} else {
 			PrintUsage();
 		}
+	}
+
+	if (changed) {
+		if (_SaveSettings() != B_OK)
+			fprintf(stderr, "Could not save the settings file.\n");
+		_RefreshPrinterList();
+		_Broadcast();
+		_StartPoll();
 	}
 }
 
@@ -178,13 +238,24 @@ PrinterMonitorApp::MessageReceived(BMessage* message)
 			break;
 
 		case kMsgPollResult:
+			_HandleResult(message);
+			break;
+
+		case kMsgPollDone:
 			fPolling = false;
 			fPollThread = -1;
-			fLastStatus = *message;
-			fLastStatus.what = kMsgStatusUpdate;
-			fHaveStatus = true;
+			break;
+
+		case kMsgSetDefault:
+		{
+			BString key;
+			if (message->FindString("key", &key) != B_OK)
+				break;
+			fDefault = key;
+			_SaveSettings();
 			_Broadcast();
 			break;
+		}
 
 		case kMsgSubscribe:
 		{
@@ -198,8 +269,10 @@ PrinterMonitorApp::MessageReceived(BMessage* message)
 			}
 			if (!known)
 				fSubscribers.push_back(subscriber);
-			if (fHaveStatus)
-				subscriber.SendMessage(&fLastStatus, (BHandler*)NULL, 1000000);
+
+			BMessage update;
+			_BuildUpdate(update);
+			subscriber.SendMessage(&update, (BHandler*)NULL, 1000000);
 			break;
 		}
 
@@ -213,8 +286,8 @@ PrinterMonitorApp::MessageReceived(BMessage* message)
 bool
 PrinterMonitorApp::QuitRequested()
 {
-	// Let a running query finish (bounded by kQueryTimeout), so its thread
-	// never posts to an app that no longer exists.
+	// Let a running poll cycle finish, so its thread never posts to an app
+	// that no longer exists.
 	if (fPolling && fPollThread >= 0) {
 		status_t result;
 		wait_for_thread(fPollThread, &result);
@@ -234,11 +307,14 @@ PrinterMonitorApp::_LoadSettings()
 	if (file.InitCheck() != B_OK)
 		return;
 
-	char buffer[4096];
+	char buffer[8192];
 	ssize_t size = file.Read(buffer, sizeof(buffer) - 1);
 	if (size <= 0)
 		return;
 	buffer[size] = '\0';
+
+	// Milestone 4 format, converted on load.
+	std::string oldAddress, oldResource;
 
 	std::istringstream lines(buffer);
 	std::string line;
@@ -251,16 +327,23 @@ PrinterMonitorApp::_LoadSettings()
 			continue;
 		std::string key = Trim(line.substr(0, equals));
 		std::string value = Trim(line.substr(equals + 1));
-		if (key == "address")
-			fAddress = value.c_str();
-		else if (key == "resource" && !value.empty())
-			fResource = value.c_str();
-		else if (key == "port") {
-			int port = atoi(value.c_str());
-			if (port > 0 && port < 65536)
-				fPort = (uint16)port;
-		}
+
+		if (key == "printer" && !value.empty()) {
+			size_t comma = value.find(',');
+			std::string address = Trim(value.substr(0, comma));
+			std::string resource = comma == std::string::npos
+				? "" : Trim(value.substr(comma + 1));
+			fManual.push_back(MakeManual(address.c_str(), resource.c_str()));
+		} else if (key == "default")
+			fDefault = value.c_str();
+		else if (key == "address")
+			oldAddress = value;
+		else if (key == "resource")
+			oldResource = value;
 	}
+
+	if (!oldAddress.empty() && fManual.empty())
+		fManual.push_back(MakeManual(oldAddress.c_str(), oldResource.c_str()));
 }
 
 
@@ -272,11 +355,13 @@ PrinterMonitorApp::_SaveSettings()
 	if (status != B_OK)
 		return status;
 
-	BString text;
-	text << "# Printer Monitor settings\n"
-		<< "address=" << fAddress << "\n"
-		<< "resource=" << fResource << "\n"
-		<< "port=" << (int32)fPort << "\n";
+	BString text("# Printer Monitor settings\n"
+		"# printer=<address>[,<resource>] for printers not set up in the\n"
+		"# Printers preferences; default=<address> for the Deskbar icon.\n");
+	for (const PrinterEntry& printer : fManual)
+		text << "printer=" << printer.address << "," << printer.resource << "\n";
+	if (!fDefault.IsEmpty())
+		text << "default=" << fDefault << "\n";
 
 	BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
 	status = file.InitCheck();
@@ -306,30 +391,93 @@ PrinterMonitorApp::_InstallReplicant()
 }
 
 
+// Installed printers first (they have proper names), then manual ones not
+// already covered by address. Keeps the last status of printers that remain.
+void
+PrinterMonitorApp::_RefreshPrinterList()
+{
+	std::vector<PrinterEntry> entries;
+	ScanInstalledPrinters(entries);
+	for (const PrinterEntry& manual : fManual) {
+		bool covered = false;
+		for (const PrinterEntry& entry : entries) {
+			if (!entry.usb && entry.address == manual.address)
+				covered = true;
+		}
+		if (!covered)
+			entries.push_back(manual);
+	}
+
+	std::vector<MonitoredPrinter> printers;
+	for (const PrinterEntry& entry : entries) {
+		MonitoredPrinter printer;
+		MonitoredPrinter* old = _FindPrinter(entry.Key());
+		if (old != NULL)
+			printer = *old;
+		printer.entry = entry;
+		printers.push_back(printer);
+	}
+	fPrinters = printers;
+}
+
+
+MonitoredPrinter*
+PrinterMonitorApp::_FindPrinter(const BString& key)
+{
+	for (MonitoredPrinter& printer : fPrinters) {
+		if (printer.entry.Key() == key)
+			return &printer;
+	}
+	return NULL;
+}
+
+
+// The configured default if it exists, else the first network printer.
+BString
+PrinterMonitorApp::_DefaultKey() const
+{
+	for (const MonitoredPrinter& printer : fPrinters) {
+		if (printer.entry.Key() == fDefault)
+			return fDefault;
+	}
+	for (const MonitoredPrinter& printer : fPrinters) {
+		if (!printer.entry.usb)
+			return printer.entry.Key();
+	}
+	return fPrinters.empty() ? BString() : fPrinters[0].entry.Key();
+}
+
+
 void
 PrinterMonitorApp::_StartPoll()
 {
 	if (fPolling)
 		return;
 
-	if (fAddress.IsEmpty()) {
-		BMessage message(kMsgPollResult);
-		message.AddInt64("updated", (int64)time(NULL));
-		message.AddString("error", "No printer configured. In Terminal, run: "
-			"PrinterMonitor --set-printer <address>");
-		PostMessage(&message);
+	_RefreshPrinterList();
+
+	std::vector<PollJob>* jobs = new std::vector<PollJob>;
+	for (const MonitoredPrinter& printer : fPrinters) {
+		if (printer.entry.usb)
+			continue;
+		PollJob job;
+		job.key = printer.entry.Key();
+		job.address = printer.entry.address;
+		job.resource = printer.entry.resource;
+		job.port = printer.entry.port;
+		jobs->push_back(job);
+	}
+
+	if (jobs->empty()) {
+		delete jobs;
+		_Broadcast();	// show "no printers" or the USB-only list
 		return;
 	}
 
-	PollJob* job = new PollJob;
-	job->address = fAddress;
-	job->resource = fResource;
-	job->port = fPort;
-
 	thread_id thread = spawn_thread(PollThread, "printer poll",
-		B_LOW_PRIORITY, job);
+		B_LOW_PRIORITY, jobs);
 	if (thread < 0 || resume_thread(thread) != B_OK) {
-		delete job;
+		delete jobs;
 		return;
 	}
 	fPollThread = thread;
@@ -338,15 +486,131 @@ PrinterMonitorApp::_StartPoll()
 
 
 void
+PrinterMonitorApp::_HandleResult(BMessage* message)
+{
+	BString key;
+	if (message->FindString("key", &key) != B_OK)
+		return;
+	MonitoredPrinter* printer = _FindPrinter(key);
+	if (printer == NULL)
+		return;	// removed while the poll was running
+
+	printer->status = *message;
+	printer->polled = true;
+	_UpdateConditions(*printer);
+	_Broadcast();
+}
+
+
+// Sends one notification per condition that newly appeared. Conditions are
+// kept while the printer is unreachable, so an outage doesn't cause repeats.
+// Not persisted: after a restart, current conditions are notified once.
+void
+PrinterMonitorApp::_UpdateConditions(MonitoredPrinter& printer)
+{
+	if (printer.status.HasString("error"))
+		return;
+
+	PrinterStatus status;
+	MessageToStatus(printer.status, status);
+
+	std::map<std::string, BString> current;
+	for (const MarkerInfo& marker : status.markers) {
+		if (IsEmpty(marker))
+			current["empty:" + marker.name] << marker.name.c_str() << " is empty.";
+		else if (IsLow(marker))
+			current["low:" + marker.name] << marker.name.c_str() << " is low.";
+	}
+	if (status.state == kPrinterStateStopped)
+		current["stopped"] << "The printer has stopped.";
+
+	std::set<std::string> now;
+	for (const auto& condition : current) {
+		now.insert(condition.first);
+		if (printer.conditions.count(condition.first) > 0)
+			continue;
+
+		BNotification notification(B_IMPORTANT_NOTIFICATION);
+		notification.SetGroup("Printer Monitor");
+		notification.SetTitle(printer.entry.name);
+		notification.SetContent(condition.second);
+		BString id(printer.entry.Key());
+		id << ":" << condition.first.c_str();
+		notification.SetMessageID(id);
+		notification.Send();
+	}
+	printer.conditions = now;
+}
+
+
+void
+PrinterMonitorApp::_BuildUpdate(BMessage& update) const
+{
+	update.MakeEmpty();
+	update.what = kMsgStatusUpdate;
+
+	if (fPrinters.empty()) {
+		update.AddString("notice", "No printers found. Set one up in the "
+			"Printers preferences, or in Terminal run: "
+			"PrinterMonitor --add-printer <address>");
+		return;
+	}
+
+	BString defaultKey = _DefaultKey();
+	for (const MonitoredPrinter& printer : fPrinters) {
+		BMessage item(printer.status);
+		item.what = 0;
+		item.RemoveName("key");
+		item.AddString("key", printer.entry.Key());
+		item.AddString("name", printer.entry.name);
+		item.AddString("address", printer.entry.address);
+		item.AddString("source", printer.entry.source);
+		item.AddBool("usb", printer.entry.usb);
+		item.AddBool("default", printer.entry.Key() == defaultKey);
+		item.AddBool("polled", printer.polled);
+		if (printer.entry.usb)
+			item.AddString("error", "Status not available over USB yet.");
+		update.AddMessage("printer", &item);
+	}
+}
+
+
+void
 PrinterMonitorApp::_Broadcast()
 {
+	BMessage update;
+	_BuildUpdate(update);
+
 	// A 1 s timeout keeps a stuck Deskbar from blocking the app; subscribers
 	// that cannot be reached (replicant removed) are dropped.
 	for (size_t i = 0; i < fSubscribers.size();) {
-		if (fSubscribers[i].SendMessage(&fLastStatus, (BHandler*)NULL, 1000000)
+		if (fSubscribers[i].SendMessage(&update, (BHandler*)NULL, 1000000)
 				!= B_OK)
 			fSubscribers.erase(fSubscribers.begin() + i);
 		else
 			i++;
+	}
+}
+
+
+void
+PrinterMonitorApp::_PrintList() const
+{
+	if (fPrinters.empty()) {
+		printf("No printers.\n");
+		return;
+	}
+	BString defaultKey = _DefaultKey();
+	for (const MonitoredPrinter& printer : fPrinters) {
+		const PrinterEntry& entry = printer.entry;
+		if (entry.usb) {
+			printf("  %s  (USB, installed; status not available yet)\n",
+				entry.name.String());
+			continue;
+		}
+		printf("%s %s  ipp://%s:%u/%s  (%s)\n",
+			entry.Key() == defaultKey ? "*" : " ", entry.name.String(),
+			entry.address.String(), (unsigned)entry.port,
+			entry.resource.String(), entry.source.String());
 	}
 }

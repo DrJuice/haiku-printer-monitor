@@ -5,28 +5,32 @@
  * Component:   deskbar
  * Description: The Deskbar replicant. Runs inside the Deskbar process, so it
  *              does no network I/O: it subscribes to the background app,
- *              draws one bar per supply, shows details in a tooltip and a
- *              click menu, and relaunches the app if it is not running.
+ *              draws the default printer's supplies, flags other printers
+ *              that need attention, shows details in a tooltip and a click
+ *              menu, and relaunches the app if it is not running.
  * License:     MIT (see LICENSE)
  * Author:      Tony (DrJuice), with Claude (Anthropic)
  * ----------------------------------------------------------------------------
  * Revision History
  *   Rev  Date        Author        Changes
  *   0.1  2026-11-01  Tony/Claude   Initial creation (Phase 1, milestone 4).
+ *   0.2  2026-11-01  Tony/Claude   Milestone 5a: multiple printers (stored as
+ *                                  the app's "printer" messages), per-printer
+ *                                  submenus with "Make default".
  * ============================================================================
  */
 #ifndef PRINTER_MONITOR_VIEW_H
 #define PRINTER_MONITOR_VIEW_H
 
 
+#include <Message.h>
 #include <String.h>
 #include <View.h>
 
 #include <vector>
 
-#include "IPPClient.h"
 
-
+class BMenu;
 class BMessageRunner;
 
 
@@ -48,14 +52,18 @@ public:
 private:
 			void			_Init();
 			bool			_IsStale() const;
+			const BMessage*	_DefaultPrinter() const;
+			int32			_OthersNeedingAttention() const;
 			void			_CheckConnection();
+			void			_PrinterLines(const BMessage& printer,
+								std::vector<BString>& lines) const;
 			void			_BuildLines(std::vector<BString>& lines) const;
+			void			_AddPrinterItems(BMenu* menu,
+								const BMessage& printer, bool isDefault);
 			void			_UpdateToolTip();
 
-			PrinterStatus	fStatus;
-			BString			fAddress;
-			BString			fError;
-			int64			fUpdated;		// time_t of the last poll
+			std::vector<BMessage>	fPrinters;	// one per printer
+			BString			fNotice;		// set when there are no printers
 			bigtime_t		fLastReceived;	// system_time() of last update
 			bool			fHaveStatus;
 			BMessageRunner*	fCheckRunner;

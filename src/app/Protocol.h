@@ -13,6 +13,10 @@
  * Revision History
  *   Rev  Date        Author        Changes
  *   0.1  2026-11-01  Tony/Claude   Initial creation (Phase 1, milestone 4).
+ *   0.2  2026-11-01  Tony/Claude   Milestone 5a: multiple printers. Status
+ *                                  update now carries one "printer" message
+ *                                  per printer. Added kMsgPollDone,
+ *                                  kMsgSetDefault and NeedsAttention().
  * ============================================================================
  */
 #ifndef PRINTER_MONITOR_PROTOCOL_H
@@ -32,12 +36,15 @@ static const char* const kReplicantName = "PrinterMonitor";
 
 enum {
 	kMsgSubscribe		= 'pmSb',	// replicant -> app: "messenger"
-	kMsgStatusUpdate	= 'pmSt',	// app -> replicant: status fields
+	kMsgStatusUpdate	= 'pmSt',	// app -> replicant: "printer" messages
+									// (+ "notice" when there are none)
 	kMsgRefresh			= 'pmRf',	// replicant -> app: poll now
 	kMsgPoll			= 'pmPl',	// app timer
-	kMsgPollResult		= 'pmPr',	// poll thread -> app
+	kMsgPollResult		= 'pmPr',	// poll thread -> app, one per printer
+	kMsgPollDone		= 'pmPd',	// poll thread -> app, end of a cycle
+	kMsgSetDefault		= 'pmDf',	// replicant -> app: "key"
 	kMsgCheckConnection	= 'pmCk',	// replicant timer
-	kMsgOpenWebPage		= 'pmWb',	// replicant menu
+	kMsgOpenWebPage		= 'pmWb',	// replicant menu: "address"
 	kMsgRemoveReplicant	= 'pmRm'	// replicant menu
 };
 
@@ -117,6 +124,32 @@ IsLow(const MarkerInfo& marker)
 {
 	return marker.level > 0 && marker.lowLevel >= 0
 		&& marker.level <= marker.lowLevel;
+}
+
+
+// Per-printer fields inside each "printer" message of kMsgStatusUpdate:
+//   key, name, address, source (strings); usb, default, polled (bools);
+//   updated (int64 time_t); error (string, only when the query failed);
+//   plus the StatusToMessage() fields.
+
+// True when a reachable printer needs the user: a supply low or empty, or
+// the printer stopped. Unreachable printers do not count, so a laptop off
+// the home network doesn't show a permanent alert.
+inline bool
+NeedsAttention(const BMessage& printer)
+{
+	if (!printer.GetBool("polled", false) || printer.HasString("error"))
+		return false;
+
+	PrinterStatus status;
+	MessageToStatus(printer, status);
+	if (status.state == kPrinterStateStopped)
+		return true;
+	for (const MarkerInfo& marker : status.markers) {
+		if (IsLow(marker) || IsEmpty(marker))
+			return true;
+	}
+	return false;
 }
 
 
