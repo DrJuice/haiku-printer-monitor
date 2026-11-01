@@ -1,0 +1,33 @@
+/*
+ * ============================================================================
+ * File:        PrinterMonitor.rdef
+ * Project:     haiku-printer-monitor
+ * Component:   app
+ * Description: Application resources. The signature lets Deskbar find the
+ *              replicant code; B_SINGLE_LAUNCH keeps one instance (later
+ *              launches forward their arguments); B_BACKGROUND_APP keeps it
+ *              out of the Deskbar's application list.
+ * License:     MIT (see LICENSE)
+ * Author:      Tony (DrJuice), with Claude (Anthropic)
+ * ----------------------------------------------------------------------------
+ * Revision History
+ *   Rev  Date        Author        Changes
+ *   0.1  2026-11-01  Tony/Claude   Initial creation (Phase 1, milestone 4).
+ * ============================================================================
+ */
+
+resource app_signature "application/x-vnd.DrJuice-PrinterMonitor";
+
+resource app_flags B_SINGLE_LAUNCH | B_BACKGROUND_APP;
+
+resource app_version {
+	major  = 0,
+	middle = 1,
+	minor  = 0,
+
+	variety = B_APPV_DEVELOPMENT,
+	internal = 0,
+
+	short_info = "Printer Monitor",
+	long_info = "Printer Monitor: toner and status in the Deskbar. MIT license."
+};
