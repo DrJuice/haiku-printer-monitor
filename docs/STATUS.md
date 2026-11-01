@@ -13,6 +13,7 @@
 | 0.2 | 2026-11-01 | Tony/Claude | Commit IDs; milestone 5 split into 5a/5b; Haiku printing works; driver phase rescoped. |
 | 0.3 | 2026-11-01 | Tony/Claude | 5a verified and committed; 5b delivered. |
 | 0.4 | 2026-11-01 | Tony/Claude | 5b verified; autostart verified; 6a delivered. |
+| 0.5 | 2026-11-01 | Tony/Claude | 5b/6a committed; app icon delivered (6b). |
 
 ---
 
@@ -46,9 +47,9 @@ effort.
 | 4  | Background app + Deskbar replicant          | Done, `9053087`       |
 | -  | Project docs                                | Done, `e8f28ad`       |
 | 5a | Multiple printers (installed + manual), default printer, notifications | Done, `8a69dbb` |
-| 5b | Settings window, discovery with "Add" button, poll interval, plain errors | Done (commit ID to record) |
-| 6a | Local Haiku package (.hpkg), Deskbar menu entry; autostart | **Delivered, testing** (autostart verified) |
-| 6b | GitHub release, README, HaikuPorts recipe -> HaikuDepot | Next |
+| 5b | Settings window, discovery with "Add" button, poll interval, plain errors | Done, `86e9aac` |
+| 6a | Local Haiku package (.hpkg), Deskbar menu entry; autostart | Done, `e040ee0` |
+| 6b | App icon, README, GitHub release, HaikuPorts recipe -> HaikuDepot | **In progress** (icon delivered) |
 | P2 | SNMP inventory (drum, belt, fuser, paper feed; experimental fine toner; serial for USB matching) | Planned (was milestone 3) |
 | P3 | USB printer status                          | Planned               |
 | P4 | Printing gaps: color, duplex, auto-filled IPP URL (see FINDINGS F10) | Planned (replaces "write a driver") |
@@ -99,8 +100,6 @@ Stale-data threshold now follows the poll interval.
 - Printer addresses must be IPv4 numbers, not host names.
 - Notified conditions are not remembered across restarts, so a restart
   repeats current warnings once.
-- No app icon yet (generic icon in the Deskbar menu); to design in
-  Icon-O-Matic.
 - Not yet on HaikuDepot (6b).
 - The HL-3170CDW does not answer Haiku's multicast mDNS queries (see
   FINDINGS.md, open question 1). Direct queries work.
