@@ -1,0 +1,21 @@
+# ============================================================================
+# File:        .gitignore
+# Project:     haiku-printer-monitor
+# Description: Keeps build output and editor clutter out of the repository.
+# ----------------------------------------------------------------------------
+# Revision History
+#   Rev  Date        Author        Changes
+#   0.1  2026-11-01  Tony/Claude   Initial creation.
+# ============================================================================
+
+# Build output
+build/
+*.o
+
+# Haiku package build output (milestone 6)
+*.hpkg
+
+# Editor and OS clutter
+*~
+*.swp
+.DS_Store
