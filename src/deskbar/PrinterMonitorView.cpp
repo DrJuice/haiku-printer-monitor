@@ -25,6 +25,11 @@
  *                                  (opens the window in the app, not in the
  *                                  Deskbar); staleness follows the user's
  *                                  poll interval.
+ *   0.4  2026-11-01  Tony/Claude   Review fixes (v0.1.1): the app is
+ *                                  relaunched at most 3 times without an
+ *                                  answer, then the menu offers "Start
+ *                                  Printer Monitor" instead of retrying
+ *                                  forever.
  * ============================================================================
  */
 
@@ -52,6 +57,8 @@ namespace {
 
 
 const size_t	kMaxBars = 4;
+const int32		kMaxLaunchAttempts = 3;
+const uint32	kMsgStartApp = 'pmSa';	// menu: start the app again
 const float		kPreferredWidth = 23.0f;	// 4 bars x 5 px + 3 gaps
 
 
@@ -148,6 +155,7 @@ PrinterMonitorView::_Init()
 {
 	fLastReceived = 0;
 	fPollMinutes = kDefaultPollMinutes;
+	fLaunchAttempts = 0;
 	fHaveStatus = false;
 	fCheckRunner = NULL;
 }
@@ -315,6 +323,7 @@ PrinterMonitorView::MessageReceived(BMessage* message)
 			fPollMinutes = message->GetInt32("interval", kDefaultPollMinutes);
 			fHaveStatus = true;
 			fLastReceived = system_time();
+			fLaunchAttempts = 0;
 			Invalidate();
 			_UpdateToolTip();
 			break;
@@ -322,6 +331,12 @@ PrinterMonitorView::MessageReceived(BMessage* message)
 
 		case kMsgCheckConnection:
 			_CheckConnection();
+			break;
+
+		case kMsgStartApp:
+			fLaunchAttempts = 0;
+			_CheckConnection();
+			_UpdateToolTip();
 			break;
 
 		case kMsgRefresh:
@@ -381,7 +396,14 @@ PrinterMonitorView::_CheckConnection()
 	// if needed. The next check (kCheckInterval) completes the subscription.
 	BMessenger app(kSignature);
 	if (!app.IsValid()) {
+		// Don't retry forever if the app keeps failing to start; the menu
+		// offers "Start Printer Monitor" once we give up.
+		if (fLaunchAttempts >= kMaxLaunchAttempts)
+			return;
+		fLaunchAttempts++;
 		be_roster->Launch(kSignature);
+		if (fLaunchAttempts == kMaxLaunchAttempts)
+			_UpdateToolTip();
 		return;
 	}
 
@@ -456,6 +478,11 @@ PrinterMonitorView::_PrinterLines(const BMessage& printer,
 void
 PrinterMonitorView::_BuildLines(std::vector<BString>& lines) const
 {
+	if (fLaunchAttempts >= kMaxLaunchAttempts
+		&& !BMessenger(kSignature).IsValid()) {
+		lines.push_back("Printer Monitor isn't running. Click to start it.");
+		return;
+	}
 	if (!fHaveStatus) {
 		lines.push_back("Printer Monitor: waiting for status" B_UTF8_ELLIPSIS);
 		return;
@@ -563,6 +590,10 @@ PrinterMonitorView::MouseDown(BPoint where)
 	}
 
 	menu->AddSeparatorItem();
+	if (!BMessenger(kSignature).IsValid()) {
+		menu->AddItem(new BMenuItem("Start Printer Monitor",
+			new BMessage(kMsgStartApp)));
+	}
 	menu->AddItem(new BMenuItem("Refresh now", new BMessage(kMsgRefresh)));
 	menu->AddItem(new BMenuItem("Settings" B_UTF8_ELLIPSIS,
 		new BMessage(kMsgShowSettings)));

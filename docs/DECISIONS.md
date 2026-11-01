@@ -12,6 +12,7 @@ reasoning survives after the conversation that produced it.
 | 0.3 | 2026-11-01 | Tony/Claude | Added D20-D23.           |
 | 0.4 | 2026-11-01 | Tony/Claude | Added D24-D26.           |
 | 0.5 | 2026-11-01 | Tony/Claude | Added D27.               |
+| 0.6 | 2026-11-01 | Tony/Claude | Added D28-D29.           |
 
 ---
 
@@ -158,3 +159,22 @@ following Haiku's own importer source, and checks the result with an
 independent decoder. Keeping the script as the source means the icon can
 be tweaked by editing numbers, without a graphics tool. It can still be
 opened and refined in Icon-O-Matic later.
+
+### D28. Code review before HaikuPorts; fixes released as 0.1.1 (2026-11-01)
+A review of all sources before submission found no crash or security hole,
+but four things to fix: endless relaunching of a failing app by the
+replicant (now 3 tries, then a "Start Printer Monitor" menu item); slow
+quit with unreachable printers (3 s connect timeout inside the 10 s request
+limit); a chunk-size check that integer overflow could bypass (harmless in
+effect, fixed anyway); and unlimited printer-supplied text in the UI (now
+capped at 128 characters and 16 supplies/reasons; discovery at 32 results).
+The HaikuPorts recipe targets 0.1.1.
+
+### D29. Plain IPP is accepted and documented (2026-11-01)
+Status requests use unencrypted IPP on the local network, as printers
+normally do; only state and supply levels are exchanged. Documented in the
+README. Encrypted IPP (ipps) is a possible later addition. Local programs
+can send commands to the monitor, which is normal on Haiku.
+
+Deferred to the next round (before SNMP work): localization with Haiku's
+B_TRANSLATE system, and a `make test` target for the parsers.

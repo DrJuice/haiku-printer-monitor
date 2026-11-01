@@ -14,6 +14,10 @@
  * Revision History
  *   Rev  Date        Author        Changes
  *   0.1  2026-11-01  Tony/Claude   Initial creation (Phase 1, milestone 2).
+ *   0.2  2026-11-01  Tony/Claude   Review fixes (v0.1.1): 3 s connect timeout
+ *                                  so unreachable printers fail fast; chunk
+ *                                  size checked without integer overflow;
+ *                                  printer-supplied strings and lists capped.
  * ============================================================================
  */
 
@@ -54,6 +58,10 @@ const uint8		kTagNaturalLanguage = 0x48;
 const uint8		kTagKeyword = 0x44;
 
 const size_t	kMaxResponseSize = 1024 * 1024;
+const bigtime_t	kConnectTimeout = 3 * 1000000LL;	// reachable printers
+													// connect in well under 1 s
+const size_t	kMaxText = 128;			// longest string we keep from a printer
+const size_t	kMaxListItems = 16;		// most supplies/reasons we keep
 
 // Only what the monitor needs, to keep the reply small.
 const char* kRequestedAttributes[] = {
@@ -157,7 +165,7 @@ DecodeChunked(const std::string& input, std::string& output)
 {
 	output.clear();
 	size_t pos = 0;
-	while (true) {
+	while (pos <= input.size()) {
 		size_t lineEnd = input.find("\r\n", pos);
 		if (lineEnd == std::string::npos)
 			return false;
@@ -166,11 +174,12 @@ DecodeChunked(const std::string& input, std::string& output)
 		pos = lineEnd + 2;
 		if (size == 0)
 			return true;
-		if (pos + size > input.size())
+		if (size > input.size() - pos)	// written this way to avoid overflow
 			return false;
 		output.append(input, pos, size);
 		pos += size + 2;	// skip the chunk's trailing CRLF
 	}
+	return false;
 }
 
 
@@ -295,6 +304,14 @@ ValueAsInt(const IPPValue& value, int32& result)
 }
 
 
+// Printer-supplied text ends up in menus, tooltips and notifications.
+std::string
+Capped(const std::string& text)
+{
+	return text.size() <= kMaxText ? text : text.substr(0, kMaxText);
+}
+
+
 const std::vector<IPPValue>*
 Find(const AttributeMap& attributes, const char* name)
 {
@@ -310,15 +327,15 @@ FillStatus(const AttributeMap& attributes, PrinterStatus& status)
 
 	if ((values = Find(attributes, "printer-make-and-model")) != NULL
 		&& !values->empty())
-		status.makeAndModel = (*values)[0].data;
+		status.makeAndModel = Capped((*values)[0].data);
 
 	if ((values = Find(attributes, "printer-state")) != NULL
 		&& !values->empty())
 		ValueAsInt((*values)[0], status.state);
 
 	if ((values = Find(attributes, "printer-state-reasons")) != NULL) {
-		for (const IPPValue& value : *values)
-			status.stateReasons.push_back(value.data);
+		for (size_t i = 0; i < values->size() && i < kMaxListItems; i++)
+			status.stateReasons.push_back(Capped((*values)[i].data));
 	}
 
 	const std::vector<IPPValue>* names = Find(attributes, "marker-names");
@@ -331,13 +348,13 @@ FillStatus(const AttributeMap& attributes, PrinterStatus& status)
 	const std::vector<IPPValue>* lows = Find(attributes, "marker-low-levels");
 	const std::vector<IPPValue>* highs = Find(attributes, "marker-high-levels");
 
-	for (size_t i = 0; i < names->size(); i++) {
+	for (size_t i = 0; i < names->size() && i < kMaxListItems; i++) {
 		MarkerInfo marker;
-		marker.name = (*names)[i].data;
+		marker.name = Capped((*names)[i].data);
 		if (colors != NULL && i < colors->size())
-			marker.color = (*colors)[i].data;
+			marker.color = Capped((*colors)[i].data);
 		if (types != NULL && i < types->size())
-			marker.type = (*types)[i].data;
+			marker.type = Capped((*types)[i].data);
 		if (levels != NULL && i < levels->size())
 			ValueAsInt((*levels)[i], marker.level);
 		if (lows != NULL && i < lows->size())
@@ -452,7 +469,9 @@ IPPClient::GetStatus(const char* address, uint16 port, const char* resource,
 	if (connect(fd, (sockaddr*)&target, sizeof(target)) < 0) {
 		if (errno != EINPROGRESS)
 			return _Fail("connecting to the printer");
-		status_t result = _Wait(fd, POLLOUT, deadline);
+		bigtime_t connectDeadline = std::min(deadline,
+			system_time() + kConnectTimeout);
+		status_t result = _Wait(fd, POLLOUT, connectDeadline);
 		if (result != B_OK)
 			return result;
 		int socketError = 0;

@@ -109,6 +109,10 @@ build/mdns_probe -a 192.168.1.20      # ask one printer directly
   coarse steps (the HL-3170CDW: 10%, 50%, 100%), and the monitor shows exactly
   that rather than guessing.
 - USB printer status is not available yet.
+- Status is read with plain (unencrypted) IPP on port 631, which is how
+  printers normally answer on a home or office network. Only printer state
+  and supply levels are exchanged. Printers set to accept encrypted IPP only
+  (`ipps://`) are not supported yet.
 
 ## Roadmap
 
@@ -130,4 +134,5 @@ Developed by Tony ([DrJuice](https://github.com/DrJuice)), with Claude
 ---
 
 <sub>README revision history: 0.1, 2026-11-01, Tony/Claude: initial
-creation (milestone 6b).</sub>
+creation (milestone 6b). 0.2, 2026-11-01, Tony/Claude: note on unencrypted
+IPP (v0.1.1).</sub>

@@ -29,6 +29,7 @@
 #                                  every committed build is a new revision.
 #                                  Added "install" and "uninstall" targets
 #                                  that force Haiku to reload the package.
+#   0.8  2026-11-01  Tony/Claude   Version 0.1.1 (code review fixes).
 # ============================================================================
 
 CXX      := g++
@@ -46,7 +47,7 @@ APP_OBJS := $(BUILD)/main.o $(BUILD)/PrinterMonitorApp.o \
             $(BUILD)/PrinterMonitorView.o $(BUILD)/IPPClient.o \
             $(BUILD)/MDNSBrowser.o
 
-VERSION  := 0.1.0
+VERSION  := 0.1.1
 REVISION := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 ARCH     := $(shell getarch 2>/dev/null || echo x86_64)
 PKG_DIR  := $(BUILD)/package

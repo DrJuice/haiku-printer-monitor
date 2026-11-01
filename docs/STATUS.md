@@ -15,6 +15,7 @@
 | 0.4 | 2026-11-01 | Tony/Claude | 5b verified; autostart verified; 6a delivered. |
 | 0.5 | 2026-11-01 | Tony/Claude | 5b/6a committed; app icon delivered (6b). |
 | 0.6 | 2026-11-01 | Tony/Claude | Icon committed; README, screenshots, make install delivered. |
+| 0.7 | 2026-11-01 | Tony/Claude | v0.1.0 released; code review; v0.1.1 fixes delivered. |
 
 ---
 
@@ -50,7 +51,8 @@ effort.
 | 5a | Multiple printers (installed + manual), default printer, notifications | Done, `8a69dbb` |
 | 5b | Settings window, discovery with "Add" button, poll interval, plain errors | Done, `86e9aac` |
 | 6a | Local Haiku package (.hpkg), Deskbar menu entry; autostart | Done, `e040ee0` |
-| 6b | App icon, README, GitHub release, HaikuPorts recipe -> HaikuDepot | **In progress**: icon done (`8371a8d`); README delivered; release and recipe next |
+| 6b | App icon, README, GitHub release, HaikuPorts recipe -> HaikuDepot | **In progress**: icon (`8371a8d`), README, release v0.1.0 (tag on `42373c3`) done; v0.1.1 review fixes delivered; recipe next |
+| R1 | Localization (B_TRANSLATE) and `make test` for parsers | Planned, before P2 (DECISIONS D28) |
 | P2 | SNMP inventory (drum, belt, fuser, paper feed; experimental fine toner; serial for USB matching) | Planned (was milestone 3) |
 | P3 | USB printer status                          | Planned               |
 | P4 | Printing gaps: color, duplex, auto-filled IPP URL (see FINDINGS F10) | Planned (replaces "write a driver") |

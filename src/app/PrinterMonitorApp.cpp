@@ -28,6 +28,8 @@
  *                                  worker thread, poll interval setting
  *                                  (interval=<minutes>), plain-language
  *                                  error messages.
+ *   0.4  2026-11-01  Tony/Claude   Review fixes (v0.1.1): names from network
+ *                                  discovery capped in length and number.
  * ============================================================================
  */
 
@@ -116,11 +118,16 @@ DiscoveryThread(void* /*data*/)
 		message.AddString("error", error);
 	}
 
+	int32 count = 0;
 	for (const ServiceInstance& instance : results) {
 		if (instance.address.empty())
 			continue;
+		if (++count > 32)
+			break;	// a busy network can't flood the window
 		BMessage found;
-		found.AddString("name", instance.instanceName.c_str());
+		BString name(instance.instanceName.c_str());
+		name.Truncate(128);
+		found.AddString("name", name);
 		found.AddString("address", instance.address.c_str());
 		BString resource("ipp/print");
 		for (const auto& entry : instance.txt) {

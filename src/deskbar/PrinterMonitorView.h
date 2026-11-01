@@ -19,6 +19,8 @@
  *                                  submenus with "Make default".
  *   0.3  2026-11-01  Tony/Claude   Milestone 5b: "Settings..." menu item;
  *                                  staleness follows the poll interval.
+ *   0.4  2026-11-01  Tony/Claude   Review fixes (v0.1.1): limited relaunch
+ *                                  attempts, then a "Start" menu item.
  * ============================================================================
  */
 #ifndef PRINTER_MONITOR_VIEW_H
@@ -68,6 +70,7 @@ private:
 			BString			fNotice;		// set when there are no printers
 			bigtime_t		fLastReceived;	// system_time() of last update
 			int32			fPollMinutes;	// from the app's updates
+			int32			fLaunchAttempts;	// since the last update
 			bool			fHaveStatus;
 			BMessageRunner*	fCheckRunner;
 };
