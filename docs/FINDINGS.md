@@ -11,6 +11,7 @@ behind each. "Confirmed" means checked against an independent source;
 | 0.1 | 2026-11-01 | Tony/Claude | Initial creation (F1-F9, open questions). |
 | 0.2 | 2026-11-01 | Tony/Claude | F8: installed printer storage; F10: printing works; open question 3 answered. |
 | 0.3 | 2026-11-01 | Tony/Claude | F11: autostart via Deskbar restore. |
+| 0.4 | 2026-11-01 | Tony/Claude | F12: package replaced in place isn't reloaded. |
 
 ---
 
@@ -131,6 +132,15 @@ duplex, images.
 After a full restart, with nothing started by hand, the tray icon was
 restored by the Deskbar and the replicant relaunched the background app
 (Refresh worked). Tested with the app running from `build/`.
+
+## F12. A package replaced in place may not be reloaded (confirmed)
+
+Copying a rebuilt `.hpkg` over an active one in `~/config/packages` with
+the **same file name and version** left Haiku serving the old contents
+(app file still dated from the first install; no icon resource). Moving
+the package out and back in made Haiku reload it. Remedies: `make install`
+(removes, waits, copies) and a package revision that changes with every
+commit.
 
 ## F9. USB (not yet tested)
 

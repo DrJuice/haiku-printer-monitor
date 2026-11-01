@@ -6,6 +6,8 @@
 #              executable). Output goes to build/.
 #              Usage: make          (build everything)
 #                     make package  (build the .hpkg in build/)
+#                     make install  (package + install into ~/config/packages)
+#                     make uninstall
 #                     make clean    (remove build/)
 # License:     MIT (see LICENSE)
 # Author:      Tony (DrJuice), with Claude (Anthropic)
@@ -23,6 +25,10 @@
 #                                  to the app (milestone 5b).
 #   0.6  2026-11-01  Tony/Claude   Added "package" target: builds a Haiku
 #                                  .hpkg (milestone 6a).
+#   0.7  2026-11-01  Tony/Claude   Package revision = git commit count, so
+#                                  every committed build is a new revision.
+#                                  Added "install" and "uninstall" targets
+#                                  that force Haiku to reload the package.
 # ============================================================================
 
 CXX      := g++
@@ -41,14 +47,14 @@ APP_OBJS := $(BUILD)/main.o $(BUILD)/PrinterMonitorApp.o \
             $(BUILD)/MDNSBrowser.o
 
 VERSION  := 0.1.0
-REVISION := 1
+REVISION := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 ARCH     := $(shell getarch 2>/dev/null || echo x86_64)
 PKG_DIR  := $(BUILD)/package
 PKG      := $(BUILD)/printer_monitor-$(VERSION)-$(REVISION)-$(ARCH).hpkg
 DOC_DIR  := $(PKG_DIR)/documentation/packages/printer_monitor
 MENU_DIR := $(PKG_DIR)/data/deskbar/menu/Applications
 
-.PHONY: all clean package
+.PHONY: all clean package install uninstall
 
 all: $(BUILD)/mdns_probe $(BUILD)/ipp_probe $(BUILD)/PrinterMonitor
 
@@ -84,6 +90,21 @@ package: $(BUILD)/PrinterMonitor packaging/PrinterMonitor.PackageInfo
 		packaging/PrinterMonitor.PackageInfo > $(PKG_DIR)/.PackageInfo
 	package create -C $(PKG_DIR) $(PKG)
 	@echo "Built $(PKG)"
+
+# Haiku may keep serving an already-active package that is replaced in place
+# with the same file name (FINDINGS F12), so remove it, let the package
+# daemon notice, then copy the new one in.
+USER_PKGS := $(HOME)/config/packages
+
+install: package
+	rm -f $(USER_PKGS)/printer_monitor-*.hpkg
+	sleep 3
+	cp $(PKG) $(USER_PKGS)/
+	@echo "Installed $(notdir $(PKG)). Start it from Deskbar > Applications."
+
+uninstall:
+	rm -f $(USER_PKGS)/printer_monitor-*.hpkg
+	@echo "Uninstalled. Remove the tray icon first if it is still shown."
 
 $(BUILD):
 	mkdir -p $@

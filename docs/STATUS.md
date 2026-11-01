@@ -14,6 +14,7 @@
 | 0.3 | 2026-11-01 | Tony/Claude | 5a verified and committed; 5b delivered. |
 | 0.4 | 2026-11-01 | Tony/Claude | 5b verified; autostart verified; 6a delivered. |
 | 0.5 | 2026-11-01 | Tony/Claude | 5b/6a committed; app icon delivered (6b). |
+| 0.6 | 2026-11-01 | Tony/Claude | Icon committed; README, screenshots, make install delivered. |
 
 ---
 
@@ -49,7 +50,7 @@ effort.
 | 5a | Multiple printers (installed + manual), default printer, notifications | Done, `8a69dbb` |
 | 5b | Settings window, discovery with "Add" button, poll interval, plain errors | Done, `86e9aac` |
 | 6a | Local Haiku package (.hpkg), Deskbar menu entry; autostart | Done, `e040ee0` |
-| 6b | App icon, README, GitHub release, HaikuPorts recipe -> HaikuDepot | **In progress** (icon delivered) |
+| 6b | App icon, README, GitHub release, HaikuPorts recipe -> HaikuDepot | **In progress**: icon done (`8371a8d`); README delivered; release and recipe next |
 | P2 | SNMP inventory (drum, belt, fuser, paper feed; experimental fine toner; serial for USB matching) | Planned (was milestone 3) |
 | P3 | USB printer status                          | Planned               |
 | P4 | Printing gaps: color, duplex, auto-filled IPP URL (see FINDINGS F10) | Planned (replaces "write a driver") |
@@ -108,8 +109,9 @@ Stale-data threshold now follows the poll interval.
 
 - Build: `make`. Clean: `make clean`. Package: `make package`
   (writes `build/printer_monitor-<version>-<arch>.hpkg`).
-- Install the package for testing: copy the .hpkg to
-  `~/config/packages/` (activates immediately; delete it to uninstall).
+- Install the package for testing: `make install` (remove the tray icon
+  first). `make uninstall` removes it. Copying over an active package by
+  hand may not take effect (FINDINGS F12).
 - Run: `./build/PrinterMonitor` (installed printers are picked up
   automatically); `--add-printer <ip>` for others; `--list` to check;
   `--settings` opens the settings window.
